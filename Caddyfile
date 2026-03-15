@@ -1,0 +1,3 @@
+echollm.thu.edu.tw {
+    reverse_proxy proxy:8000
+}

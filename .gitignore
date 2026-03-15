@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+*.key
+*.pem
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.vscode-server/
+
+# Cache
+.cache/
+.nv/
+.triton/
+.pytest_cache/
+.mypy_cache/
+
+# Model / weights / large assets
+downloads/
+gguf/
+hf/
+ollama/
+ollama_store/
+
+# Optional large files
+*.gguf
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# If you have uploaded datasets locally
+data/
+datasets/
