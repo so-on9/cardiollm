@@ -8,13 +8,13 @@
     --text-muted: #94a3b8;
     --danger: #ef4444;
     --danger-glow: rgba(239, 68, 68, 0.6);
-    --input-bg: rgba(0,0,0,0.3);
+    --input-bg: rgba(0, 0, 0, 0.3);
     /* 心臟圖背景：深色模式用淡灰 */
-    --viz-bg: #e2e8f0; 
+    --viz-bg: #e2e8f0;
     --viz-border: rgba(255, 255, 255, 0.5);
-  }
+}
 
-  [data-theme="light"] {
+[data-theme="light"] {
     --bg-dark: #f0f4f8;
     --card-bg: rgba(255, 255, 255, 0.7);
     --border: rgba(0, 0, 0, 0.1);
@@ -24,12 +24,12 @@
     --text-muted: #64748b;
     --danger: #dc2626;
     --danger-glow: rgba(220, 38, 38, 0.4);
-    --input-bg: rgba(255,255,255,0.8);
+    --input-bg: rgba(255, 255, 255, 0.8);
     --viz-bg: rgba(255, 255, 255, 0.4);
     --viz-border: rgba(0, 0, 0, 0.1);
-  }
+}
 
-  body {
+body {
     margin: 0;
     background-color: var(--bg-dark);
     color: var(--text-main);
@@ -38,25 +38,41 @@
     transition: background-color 0.3s ease, color 0.3s ease;
     overflow-x: hidden;
     overflow-y: auto;
-  }
-  body::before {
+}
+
+body::before {
     content: '';
     position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     background-image:
-      radial-gradient(circle at 10% 20%, var(--accent-glow) 0%, transparent 40%),
-      radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 40%);
+        radial-gradient(circle at 10% 20%, var(--accent-glow) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 40%);
     z-index: -1;
     pointer-events: none;
     opacity: 0.5;
-  }
-  ::-webkit-scrollbar { width: 8px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: #777; }
+}
 
-  .wrap {
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #555;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #777;
+}
+
+.wrap {
     max-width: 1600px;
     margin: 0 auto;
     padding: 30px;
@@ -65,9 +81,9 @@
     gap: 30px;
     min-height: 100vh;
     box-sizing: border-box;
-  }
+}
 
-  .glass-panel {
+.glass-panel {
     background: var(--card-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -78,54 +94,58 @@
     flex-direction: column;
     transition: all 0.3s ease;
     box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
-  }
+}
 
-  /* 桌機：可以保留側欄黏住（你想要也可保留） */
-  .sidebar{
+/* 桌機：可以保留側欄黏住（你想要也可保留） */
+.sidebar {
     height: fit-content;
     position: sticky;
     top: 30px;
     align-self: start;
-  }
+}
 
-  /* 20260119手機：關掉 sticky，讓整頁一起滾動，不會互相覆蓋 */
-  @media (max-width: 1100px) {
-    .sidebar{
-      position: static !important;
-      top: auto !important;
+/* 20260119手機：關掉 sticky，讓整頁一起滾動，不會互相覆蓋 */
+@media (max-width: 1100px) {
+    .sidebar {
+        position: static !important;
+        top: auto !important;
     }
-    .wrap{
-      min-height: auto;   /* 避免 100vh 造成怪的內部捲動感 */
-    }
-  }
 
-  .glass-panel:hover {
+    .wrap {
+        min-height: auto;
+        /* 避免 100vh 造成怪的內部捲動感 */
+    }
+}
+
+.glass-panel:hover {
     border-color: var(--accent);
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-  }
+}
 
-  .header-row {
+.header-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
-  }
-  .brand {
+}
+
+.brand {
     font-size: 20px;
     font-weight: 700;
     color: var(--text-main);
     letter-spacing: 0.5px;
-  }
+}
 
-  label {
+label {
     display: block;
     font-size: 13px;
     color: var(--text-muted);
     margin: 15px 0 6px;
     font-weight: 600;
-  }
-  
-  select, input {
+}
+
+select,
+input {
     width: 100%;
     background: var(--input-bg);
     border: 1px solid var(--border);
@@ -136,21 +156,31 @@
     font-size: 14px;
     transition: 0.2s;
     box-sizing: border-box;
-  }
-  select:focus, input:focus {
+}
+
+select:focus,
+input:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-glow);
-  }
-  select option { background: #1f2937; color: #fff; }
-  [data-theme="light"] select option { background: #fff; color: #000; }
+}
 
-  .param-group {
+select option {
+    background: #1f2937;
+    color: #fff;
+}
+
+[data-theme="light"] select option {
+    background: #fff;
+    color: #000;
+}
+
+.param-group {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
-  }
+}
 
-  button {
+button {
     width: 100%;
     padding: 12px;
     border-radius: 10px;
@@ -159,26 +189,31 @@
     font-weight: 600;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     margin-top: 10px;
-  }
-  .btn-primary {
+}
+
+.btn-primary {
     background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 80%, black));
     color: white;
     box-shadow: 0 4px 15px var(--accent-glow);
-  }
-  .btn-primary:hover {
+}
+
+.btn-primary:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 25px var(--accent-glow);
-  }
-  .btn-ghost {
+}
+
+.btn-ghost {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-muted);
-  }
-  .btn-ghost:hover {
-    background: rgba(125,125,125,0.1);
+}
+
+.btn-ghost:hover {
+    background: rgba(125, 125, 125, 0.1);
     color: var(--text-main);
-  }
-  .btn-icon {
+}
+
+.btn-icon {
     width: 36px;
     height: 36px;
     padding: 0;
@@ -190,164 +225,192 @@
     background: var(--input-bg);
     border: 1px solid var(--border);
     color: var(--text-main);
-  }
-  .btn-icon:hover { background: var(--border); }
+}
 
-  .main-area {
+.btn-icon:hover {
+    background: var(--border);
+}
+
+.main-area {
     display: block;
     gap: 20px;
-  }
+}
 
-  /* ---- 心臟示意圖區 ---- */
-  .viz-container{
-  position: relative;
-  display: flex;
-  flex-direction: column;   /* ✅ 改成上下排列 */
-  justify-content: flex-start;
-  align-items: center;
-  gap: 12px;                /* ✅ 工具列跟圖片留距離 */
-  min-height: 420px;
-  background: var(--viz-bg);
-  border-radius: 16px;
-  border: 1px solid var(--viz-border);
-  overflow: hidden;
-  box-shadow: inset 0 0 20px rgba(0,0,0,0.05);
-  }
+/* ---- 心臟示意圖區 ---- */
+.viz-container {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    /* ✅ 改成上下排列 */
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+    /* ✅ 工具列跟圖片留距離 */
+    min-height: 420px;
+    background: var(--viz-bg);
+    border-radius: 16px;
+    border: 1px solid var(--viz-border);
+    overflow: hidden;
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.05);
+}
 
-  /* ✅ toolbar 不用 absolute 了（不會蓋圖） */
-  .viz-toolbar{
+/* ✅ toolbar 不用 absolute 了（不會蓋圖） */
+.viz-toolbar {
     position: relative;
     width: 100%;
     display: flex;
-    flex-wrap: wrap;          /* ✅ 小螢幕自動換行 */
+    flex-wrap: wrap;
+    /* ✅ 小螢幕自動換行 */
     gap: 10px;
     align-items: center;
     justify-content: flex-start;
     z-index: 5;
     pointer-events: auto;
-  }
+}
 
-  /* 讓 toolbar 的 select 不要太寬（不然會擠爆） */
-  .viz-toolbar select{
+/* 讓 toolbar 的 select 不要太寬（不然會擠爆） */
+.viz-toolbar select {
     width: auto;
     min-width: 160px;
-  }
+}
 
-  #heartStack.calib-on { cursor: crosshair; }
+#heartStack.calib-on {
+    cursor: crosshair;
+}
 
-  .heart-stack {
+.heart-stack {
     position: relative;
     display: inline-block;
     width: 100%;
-    max-width: 600px;   /* 圖片實際寬度上限 */
+    max-width: 600px;
+    /* 圖片實際寬度上限 */
     margin-top: 36px;
 
     /* 2026/01/19 新增：下方加大可校準區域（比例跟圖片高度走） */
-    --img-ratio: 53.3854%; /* = 533.854 / 1000 * 100% */
-    --pad-ratio: 0.22;     /* 想更大就改 0.28 / 0.35 */
+    --img-ratio: 53.3854%;
+    /* = 533.854 / 1000 * 100% */
+    --pad-ratio: 0.22;
+    /* 想更大就改 0.28 / 0.35 */
     padding-bottom: calc(var(--img-ratio) * var(--pad-ratio));
-  }
-  .heart-img {
+}
+
+.heart-img {
     display: block;
     width: 100%;
     height: auto;
-  }
+}
 
-  .heart-overlay {
+.heart-overlay {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     pointer-events: none;
-  }
+}
 
-  .callout-group {
+.callout-group {
     opacity: 0;
     transition: opacity 0.25s ease;
-  }
-  .cond-text{
+}
+
+.cond-text {
     fill: var(--danger);
     font-size: 22px;
     font-weight: 800;
     font-family: system-ui, sans-serif;
     paint-order: stroke;
     stroke: #fff;
-    stroke-width: 3px;         /* 白邊，像你第二張圖那種可讀性 */
+    stroke-width: 3px;
+    /* 白邊，像你第二張圖那種可讀性 */
     stroke-linejoin: round;
-  }
+}
 
 
-  .callout-group.active {
+.callout-group.active {
     opacity: 1;
-  }
+}
 
-  .callout-line {
+.callout-line {
     stroke: var(--danger);
     stroke-width: 3.5;
     fill: none;
     stroke-linecap: round;
     stroke-linejoin: round;
     filter: drop-shadow(0 0 2px #fff);
-  }
-    /*20260119紅字說明（在底線下面） */
-  .desc-text{
+}
+
+/*20260119紅字說明（在底線下面） */
+.desc-text {
     fill: var(--danger);
-    font-size: 22px;     /* 你要更大就調 */
+    font-size: 22px;
+    /* 你要更大就調 */
     font-weight: 800;
     text-shadow: 2px 2px 0px #fff, -1px -1px 0 #fff;
     font-family: system-ui, sans-serif;
-  }
+}
 
-  /* 20260119紅底線（在黑字下面） */
-  .under-line{
+/* 20260119紅底線（在黑字下面） */
+.under-line {
     stroke: var(--danger);
     stroke-width: 6;
     stroke-linecap: round;
     filter: drop-shadow(0 0 2px #fff);
     opacity: 0;
-  }
-  .callout-group.active .under-line{ opacity: 1; }
-  .callout-group.active .desc-text{ opacity: 1; }
-  .callout-group .desc-text{ opacity: 0; } /* 沒啟用就隱藏 */
+}
 
-  .callout-dot {
+.callout-group.active .under-line {
+    opacity: 1;
+}
+
+.callout-group.active .desc-text {
+    opacity: 1;
+}
+
+.callout-group .desc-text {
+    opacity: 0;
+}
+
+/* 沒啟用就隱藏 */
+
+.callout-dot {
     fill: var(--danger);
     stroke: #fff;
     stroke-width: 1px;
-  }
+}
 
-  .callout-text {
+.callout-text {
     fill: var(--danger);
     font-size: 30px;
     font-weight: 800;
     text-shadow:
-      2px 2px 0px #fff,
-      -1px -1px 0 #fff;
+        2px 2px 0px #fff,
+        -1px -1px 0 #fff;
     font-family: system-ui, sans-serif;
-  }
-  .callout-sub {
+}
+
+.callout-sub {
     fill: #000;
     font-size: 25px;
     font-weight: 700;
     text-shadow: 1px 1px 0px #fff;
-  }
+}
 
-  /* 20260119紅底線（在黑字底下的強調線） */
-  .line{
+/* 20260119紅底線（在黑字底下的強調線） */
+.line {
     stroke: var(--danger);
     stroke-width: 6;
     stroke-linecap: round;
     filter: drop-shadow(0 0 2px #fff);
     opacity: 0;
-  }
+}
 
-  /* 只有在該標記啟用時才顯示 */
-  .callout-group.active .line{
+/* 只有在該標記啟用時才顯示 */
+.callout-group.active .line {
     opacity: 1;
-  }
+}
 
 
-  textarea {
+textarea {
     width: 100%;
     background: transparent;
     border: none;
@@ -359,68 +422,87 @@
     outline: none;
     height: 100%;
     min-height: 150px;
-  }
-  .results-grid {
+}
+
+.results-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 20px;
     margin-top: 20px;
-  }
-  .output-content {
+}
+
+.output-content {
     min-height: 200px;
     font-size: 14px;
     line-height: 1.6;
     white-space: pre-wrap;
     color: var(--text-main);
-  }
-  .warn-badge {
+}
+
+.warn-badge {
     color: #fbbf24;
     font-size: 13px;
     margin-top: 10px;
     font-weight: bold;
-  }
-  [data-theme="light"] .warn-badge { color: #d97706; }
+}
 
-  @media (max-width: 1100px) {
-    .wrap { grid-template-columns: 1fr; display: block; }
-    .results-grid { grid-template-columns: 1fr; }
-    .glass-panel { margin-bottom: 20px; }
-      /* 1) 左側設定欄已經改成 static，就不動 */
+[data-theme="light"] .warn-badge {
+    color: #d97706;
+}
+
+@media (max-width: 1100px) {
+    .wrap {
+        grid-template-columns: 1fr;
+        display: block;
+    }
+
+    .results-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .glass-panel {
+        margin-bottom: 20px;
+    }
+
+    /* 1) 左側設定欄已經改成 static，就不動 */
 
     /* 2) 輸入框 + 心臟圖：改成單欄 */
-    .main-area > div:first-child{
-      grid-template-columns: 1fr !important;
-      min-height: auto !important;
+    .main-area>div:first-child {
+        grid-template-columns: 1fr !important;
+        min-height: auto !important;
     }
 
     /* 3) 心臟圖卡片縮 padding，不要浪費空間 */
-    .viz-container{
-      min-height: auto !important;
-      padding: 14px !important;
+    .viz-container {
+        min-height: auto !important;
+        padding: 14px !important;
     }
 
     /* 4) 圖片容器吃滿寬 + 移除 max-width 限制 */
-    .heart-stack{
-      max-width: 100% !important;
-      width: 100% !important;
-      margin-top: 8px !important;
+    .heart-stack {
+        max-width: 100% !important;
+        width: 100% !important;
+        margin-top: 8px !important;
     }
 
     /* 5) 讓工具列更好用 */
-    .viz-toolbar{
-      gap: 8px !important;
+    .viz-toolbar {
+        gap: 8px !important;
     }
-    .viz-toolbar select{
-      width: 100% !important;
-      min-width: 0 !important;
+
+    .viz-toolbar select {
+        width: 100% !important;
+        min-width: 0 !important;
     }
-    #btnCalib, #btnResetAnchors{
-      width: auto !important;
+
+    #btnCalib,
+    #btnResetAnchors {
+        width: auto !important;
     }
 
     /* 6) 讓整張圖不要被「固定高度」壓到變小 */
-    .heart-img{
-      width: 100% !important;
-      height: auto !important;
+    .heart-img {
+        width: 100% !important;
+        height: auto !important;
     }
-  }
+}
