@@ -1,144 +1,148 @@
 <!doctype html>
 <html lang="zh-TW" data-theme="dark">
+
 <head>
-<meta charset="utf-8">
-<title>台中榮總心臟科翻譯/摘要LLM</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/ui.css">
+  <meta charset="utf-8">
+  <title>台中榮總心臟科翻譯/摘要LLM</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/ui.css">
 </head>
+
 <body>
 
-<div class="wrap">
-  <aside class="glass-panel sidebar">
-    <div class="header-row">
-       <div class="brand">台中榮總心臟科<br>翻譯/摘要LLM</div>
-       <button id="themeToggle" class="btn-icon" title="切換主題">🌙</button>
-    </div>
-    
-    <label>翻譯模型</label>
-    <select id="transModel"></select>
-    
-    <label>摘要模型</label>
-    <select id="sumModel"></select>
-    
-    <label>風格</label>
-    <select id="style">
-      <option>Clinical</option>
-      <option>Academic</option>
-      <option>Patient-friendly</option>
-    </select>
+  <div class="wrap">
+    <aside class="glass-panel sidebar">
+      <div class="header-row">
+        <div class="brand">台中榮總心臟科<br>翻譯/摘要LLM</div>
+        <button id="themeToggle" class="btn-icon" title="切換主題">🌙</button>
+      </div>
 
-    <label>翻譯設定 (Max Tokens / Temp)</label>
-    <div class="param-group">
+      <label>翻譯模型</label>
+      <select id="transModel"></select>
+
+      <label>摘要模型</label>
+      <select id="sumModel"></select>
+
+      <label>風格</label>
+      <select id="style">
+        <option>Clinical</option>
+        <option>Academic</option>
+        <option>Patient-friendly</option>
+      </select>
+
+      <label>翻譯設定 (Max Tokens / Temp)</label>
+      <div class="param-group">
         <input id="maxT" type="number" value="2048">
         <input id="tempT" type="number" step="0.1" value="0.1">
-    </div>
+      </div>
 
-    <label>摘要設定 (Max Tokens / Temp)</label>
-    <div class="param-group">
+      <label>摘要設定 (Max Tokens / Temp)</label>
+      <div class="param-group">
         <input id="maxS" type="number" value="1024">
         <input id="tempS" type="number" step="0.1" value="0.2">
-    </div>
-
-    <label>Top P (0.1 - 1.0)</label>
-    <input id="topP" type="number" step="0.05" value="0.9">
-
-    <div style="margin-top:25px; border-top:1px solid var(--border); padding-top:15px;">
-      <button id="btn-pipeline" class="btn-primary">開始分析</button>
-      <button id="btn-clear" class="btn-ghost">清除重置</button>
-      <button id="logout" class="btn-ghost" style="color:var(--danger); border-color:var(--border);">登出</button>
-    </div>
-  </aside>
-
-  <main class="main-area">
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap:20px; min-height: 420px;">
-      <div class="glass-panel">
-        <div style="font-weight:700; color:var(--accent); margin-bottom:10px; letter-spacing:1px;">原始報告輸入</div>
-        <textarea id="src" placeholder="請貼上心臟超音波報告全文..."></textarea>
       </div>
 
-      <!-- 心臟示意圖 + 標註 -->
-      <div class="glass-panel viz-container">
-      <div class="viz-toolbar">
-      <select id="calibTarget" title="選擇要校準的標記">
-        <option value="ao">AO 主動脈</option>
-        <option value="pa">PA 肺動脈</option>
-        <option value="la">LA 左心房</option>
-        <option value="ra">RA 右心房</option>
-        <option value="lv">LV 左心室</option>
-        <option value="rv">RV 右心室</option>
-      </select>
-        <button id="btnCalib" type="button" class="btn-ghost" style="margin:0; padding:8px 10px; width:auto;">
-          校準模式：關
-        </button>
-        <button id="btnResetAnchors" type="button" class="btn-ghost" style="margin:0; padding:8px 10px; width:auto;">
-          重置座標
-        </button>
-        <div id="calibHint" style="font-size:12px; color:var(--text-muted); margin-left:8px;">
-          （開啟後：點一下圖上想標的位置）
+      <label>Top P (0.1 - 1.0)</label>
+      <input id="topP" type="number" step="0.05" value="0.9">
+
+      <div style="margin-top:25px; border-top:1px solid var(--border); padding-top:15px;">
+        <button id="btn-pipeline" class="btn-primary">開始分析</button>
+        <button id="btn-clear" class="btn-ghost">清除重置</button>
+        <button id="logout" class="btn-ghost" style="color:var(--danger); border-color:var(--border);">登出</button>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap:20px; min-height: 420px;">
+        <div class="glass-panel">
+          <div style="font-weight:700; color:var(--accent); margin-bottom:10px; letter-spacing:1px;">原始報告輸入</div>
+          <textarea id="src" placeholder="請貼上心臟超音波報告全文..."></textarea>
+        </div>
+
+        <!-- 心臟示意圖 + 標註 -->
+        <div class="glass-panel viz-container">
+          <div class="viz-toolbar">
+            <select id="calibTarget" title="選擇要校準的標記">
+              <option value="ao">AO 主動脈</option>
+              <option value="pa">PA 肺動脈</option>
+              <option value="la">LA 左心房</option>
+              <option value="ra">RA 右心房</option>
+              <option value="lv">LV 左心室</option>
+              <option value="rv">RV 右心室</option>
+            </select>
+            <button id="btnCalib" type="button" class="btn-ghost" style="margin:0; padding:8px 10px; width:auto;">
+              校準模式：關
+            </button>
+            <button id="btnResetAnchors" type="button" class="btn-ghost"
+              style="margin:0; padding:8px 10px; width:auto;">
+              重置座標
+            </button>
+            <div id="calibHint" style="font-size:12px; color:var(--text-muted); margin-left:8px;">
+              （開啟後：點一下圖上想標的位置）
+            </div>
+          </div>
+          <div id="heartStack" class="heart-stack">
+            <img id="heartImg" src="/static/Heart_diagram_nobg.png" class="heart-img" alt="Heart Anatomy">
+
+            <!-- viewBox 改成符合 1920x1025 的比例：1000 x 533.854 -->
+            <svg id="heartSvg" class="heart-overlay" viewBox="0 0 1000 651.302" preserveAspectRatio="none">
+              <!-- 主動脈 -->
+              <g id="label-ao" class="callout-group">
+                <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
+                <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-ao">--</text>
+              </g>
+
+
+              <!-- 肺動脈 -->
+              <g id="label-pa" class="callout-group">
+                <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
+                <text class="desc-text" x="0" y="40" text-anchor="middle" id="desc-pa">--</text>
+              </g>
+
+              <!-- 左心房 -->
+              <g id="label-la" class="callout-group">
+                <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
+                <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-la">--</text>
+              </g>
+
+              <!-- 右心房 -->
+              <g id="label-ra" class="callout-group">
+                <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
+                <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-ra">--</text>
+              </g>
+
+              <!-- 左心室 -->
+              <g id="label-lv" class="callout-group">
+                <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
+                <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-lv">--</text>
+              </g>
+
+              <!-- 右心室 -->
+              <g id="label-rv" class="callout-group">
+                <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
+                <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-rv">--</text>
+              </g>
+            </svg>
+          </div>
         </div>
       </div>
-      <div id="heartStack" class="heart-stack">
-        <img id="heartImg" src="/static/Heart_diagram_nobg.png" class="heart-img" alt="Heart Anatomy">
 
-        <!-- viewBox 改成符合 1920x1025 的比例：1000 x 533.854 -->
-        <svg id="heartSvg" class="heart-overlay" viewBox="0 0 1000 651.302" preserveAspectRatio="none">
-          <!-- 主動脈 -->
-          <g id="label-ao" class="callout-group">
-            <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
-            <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-ao">--</text>
-          </g>
-
-
-          <!-- 肺動脈 -->
-          <g id="label-pa" class="callout-group">
-            <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
-            <text class="desc-text" x="0" y="40" text-anchor="middle" id="desc-pa">--</text>
-          </g>
-
-          <!-- 左心房 -->
-          <g id="label-la" class="callout-group">
-            <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
-            <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-la">--</text>
-          </g>
-
-          <!-- 右心房 -->
-          <g id="label-ra" class="callout-group">
-            <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
-            <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-ra">--</text>
-          </g>
-
-          <!-- 左心室 -->
-          <g id="label-lv" class="callout-group">
-            <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
-            <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-lv">--</text>
-          </g>
-
-          <!-- 右心室 -->
-          <g id="label-rv" class="callout-group">
-            <line class="under-line" x1="-55" y1="14" x2="55" y2="14"></line>
-            <text class="desc-text" x="0" y="44" text-anchor="middle" id="desc-rv">--</text>
-          </g>
-        </svg>
+      <div class="results-grid">
+        <div class="glass-panel">
+          <div style="font-weight:700; color:var(--text-muted); margin-bottom:15px;">翻譯結果</div>
+          <div id="trans" class="output-content"></div>
+          <div id="warnT" class="warn-badge"></div>
+        </div>
+        <div class="glass-panel">
+          <div style="font-weight:700; color:var(--text-muted); margin-bottom:15px;">臨床摘要</div>
+          <div id="sum" class="output-content"></div>
+          <div id="warnS" class="warn-badge"></div>
         </div>
       </div>
-    </div>
+    </main>
+  </div>
 
-    <div class="results-grid">
-      <div class="glass-panel">
-        <div style="font-weight:700; color:var(--text-muted); margin-bottom:15px;">翻譯結果</div>
-        <div id="trans" class="output-content"></div>
-        <div id="warnT" class="warn-badge"></div>
-      </div>
-      <div class="glass-panel">
-        <div style="font-weight:700; color:var(--text-muted); margin-bottom:15px;">臨床摘要</div>
-        <div id="sum" class="output-content"></div>
-        <div id="warnS" class="warn-badge"></div>
-      </div>
-    </div>
-  </main>
-</div>
-
-<script src="/static/ui.js"></script>
+  <script src="/static/ui.js"></script>
 </body>
+
 </html>
