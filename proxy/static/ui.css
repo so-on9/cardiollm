@@ -236,6 +236,51 @@ button {
     gap: 20px;
 }
 
+.action-group {
+    margin-top: 25px;
+    border-top: 1px solid var(--border);
+    padding-top: 15px;
+}
+
+.btn-logout {
+    color: var(--danger);
+    border-color: var(--border);
+}
+
+.top-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    min-height: 420px;
+}
+
+.panel-title {
+    font-weight: 700;
+}
+
+.panel-title-accent {
+    color: var(--accent);
+    margin-bottom: 10px;
+    letter-spacing: 1px;
+}
+
+.panel-title-muted {
+    color: var(--text-muted);
+    margin-bottom: 15px;
+}
+
+.toolbar-btn {
+    margin: 0;
+    padding: 8px 10px;
+    width: auto;
+}
+
+.calib-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: 8px;
+}
+
 /* ---- 心臟示意圖區 ---- */
 .viz-container {
     position: relative;
@@ -467,7 +512,7 @@ textarea {
     /* 1) 左側設定欄已經改成 static，就不動 */
 
     /* 2) 輸入框 + 心臟圖：改成單欄 */
-    .main-area>div:first-child {
+    .top-grid {
         grid-template-columns: 1fr !important;
         min-height: auto !important;
     }

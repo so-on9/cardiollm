@@ -45,17 +45,17 @@
       <label>Top P (0.1 - 1.0)</label>
       <input id="topP" type="number" step="0.05" value="0.9">
 
-      <div style="margin-top:25px; border-top:1px solid var(--border); padding-top:15px;">
+      <div class="action-group">
         <button id="btn-pipeline" class="btn-primary">開始分析</button>
         <button id="btn-clear" class="btn-ghost">清除重置</button>
-        <button id="logout" class="btn-ghost" style="color:var(--danger); border-color:var(--border);">登出</button>
+        <button id="logout" class="btn-ghost btn-logout">登出</button>
       </div>
     </aside>
 
     <main class="main-area">
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap:20px; min-height: 420px;">
+      <div class="top-grid">
         <div class="glass-panel">
-          <div style="font-weight:700; color:var(--accent); margin-bottom:10px; letter-spacing:1px;">原始報告輸入</div>
+          <div class="panel-title panel-title-accent">原始報告輸入</div>
           <textarea id="src" placeholder="請貼上心臟超音波報告全文..."></textarea>
         </div>
 
@@ -70,14 +70,13 @@
               <option value="lv">LV 左心室</option>
               <option value="rv">RV 右心室</option>
             </select>
-            <button id="btnCalib" type="button" class="btn-ghost" style="margin:0; padding:8px 10px; width:auto;">
+            <button id="btnCalib" type="button" class="btn-ghost toolbar-btn">
               校準模式：關
             </button>
-            <button id="btnResetAnchors" type="button" class="btn-ghost"
-              style="margin:0; padding:8px 10px; width:auto;">
+            <button id="btnResetAnchors" type="button" class="btn-ghost toolbar-btn">
               重置座標
             </button>
-            <div id="calibHint" style="font-size:12px; color:var(--text-muted); margin-left:8px;">
+            <div id="calibHint" class="calib-hint">
               （開啟後：點一下圖上想標的位置）
             </div>
           </div>
@@ -129,12 +128,12 @@
 
       <div class="results-grid">
         <div class="glass-panel">
-          <div style="font-weight:700; color:var(--text-muted); margin-bottom:15px;">翻譯結果</div>
+          <div class="panel-title panel-title-muted">翻譯結果</div>
           <div id="trans" class="output-content"></div>
           <div id="warnT" class="warn-badge"></div>
         </div>
         <div class="glass-panel">
-          <div style="font-weight:700; color:var(--text-muted); margin-bottom:15px;">臨床摘要</div>
+          <div class="panel-title panel-title-muted">臨床摘要</div>
           <div id="sum" class="output-content"></div>
           <div id="warnS" class="warn-badge"></div>
         </div>
