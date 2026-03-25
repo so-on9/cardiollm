@@ -45,7 +45,3 @@ ollama_store/
 *.pth
 *.ckpt
 *.safetensors
-
-# If you have uploaded datasets locally
-data/
-datasets/
