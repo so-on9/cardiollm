@@ -435,6 +435,3 @@ def ui(request: Request):
     if token and parse_token(token):
         return templates.TemplateResponse("ui.html", {"request": request})
     return templates.TemplateResponse("login.html", {"request": request})
-
-
-
