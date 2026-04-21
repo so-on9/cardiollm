@@ -9,9 +9,13 @@
     --danger: #ef4444;
     --danger-glow: rgba(239, 68, 68, 0.6);
     --input-bg: rgba(0, 0, 0, 0.3);
-    /* 心臟圖背景：深色模式用淡灰 */
-    --viz-bg: #e2e8f0;
-    --viz-border: rgba(255, 255, 255, 0.5);
+    /* 深色模式下改成近黑底，搭配白字版心臟圖 */
+    --viz-bg:
+        radial-gradient(circle at 20% 12%, rgba(255, 255, 255, 0.025), transparent 18%),
+        radial-gradient(circle at 82% 14%, rgba(148, 163, 184, 0.03), transparent 16%),
+        linear-gradient(160deg, #0b0d11 0%, #08090c 54%, #050607 100%);
+    --viz-border: rgba(255, 255, 255, 0.07);
+    --viz-shadow: inset 0 0 22px rgba(255, 255, 255, 0.015), 0 12px 30px rgba(0, 0, 0, 0.42);
 }
 
 [data-theme="light"] {
@@ -25,8 +29,9 @@
     --danger: #dc2626;
     --danger-glow: rgba(220, 38, 38, 0.4);
     --input-bg: rgba(255, 255, 255, 0.8);
-    --viz-bg: rgba(255, 255, 255, 0.4);
+    --viz-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(241, 245, 249, 0.88) 100%);
     --viz-border: rgba(0, 0, 0, 0.1);
+    --viz-shadow: inset 0 0 20px rgba(15, 23, 42, 0.04);
 }
 
 body {
@@ -169,6 +174,13 @@ select option {
     color: #fff;
 }
 
+select option:disabled,
+select option.option-group-label {
+    color: #9ca3af;
+    font-style: italic;
+    font-weight: 600;
+}
+
 [data-theme="light"] select option {
     background: #fff;
     color: #000;
@@ -296,7 +308,7 @@ button {
     border-radius: 16px;
     border: 1px solid var(--viz-border);
     overflow: hidden;
-    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.05);
+    box-shadow: var(--viz-shadow);
 }
 
 /* ✅ toolbar 不用 absolute 了（不會蓋圖） */
@@ -363,11 +375,6 @@ button {
     font-size: 22px;
     font-weight: 800;
     font-family: system-ui, sans-serif;
-    paint-order: stroke;
-    stroke: #fff;
-    stroke-width: 3px;
-    /* 白邊，像你第二張圖那種可讀性 */
-    stroke-linejoin: round;
 }
 
 
@@ -381,7 +388,6 @@ button {
     fill: none;
     stroke-linecap: round;
     stroke-linejoin: round;
-    filter: drop-shadow(0 0 2px #fff);
 }
 
 /*20260119紅字說明（在底線下面） */
@@ -390,7 +396,6 @@ button {
     font-size: 22px;
     /* 你要更大就調 */
     font-weight: 800;
-    text-shadow: 2px 2px 0px #fff, -1px -1px 0 #fff;
     font-family: system-ui, sans-serif;
 }
 
@@ -399,7 +404,6 @@ button {
     stroke: var(--danger);
     stroke-width: 6;
     stroke-linecap: round;
-    filter: drop-shadow(0 0 2px #fff);
     opacity: 0;
 }
 
@@ -419,17 +423,12 @@ button {
 
 .callout-dot {
     fill: var(--danger);
-    stroke: #fff;
-    stroke-width: 1px;
 }
 
 .callout-text {
     fill: var(--danger);
     font-size: 30px;
     font-weight: 800;
-    text-shadow:
-        2px 2px 0px #fff,
-        -1px -1px 0 #fff;
     font-family: system-ui, sans-serif;
 }
 
@@ -437,7 +436,6 @@ button {
     fill: #000;
     font-size: 25px;
     font-weight: 700;
-    text-shadow: 1px 1px 0px #fff;
 }
 
 /* 20260119紅底線（在黑字底下的強調線） */
@@ -445,7 +443,6 @@ button {
     stroke: var(--danger);
     stroke-width: 6;
     stroke-linecap: round;
-    filter: drop-shadow(0 0 2px #fff);
     opacity: 0;
 }
 

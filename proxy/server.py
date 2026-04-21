@@ -272,34 +272,49 @@ def build_mistral_v01_summary_prompt(req: SummarizeReq) -> str:
     return mistral_inst_prompt(instruction, body)
 
 
-def build_translate_prompt(req: TranslateReq) -> str:
-    style = (req.style or "").strip().lower()
-    if "clinical" in style:
-        tone_prompt = "使用臨床報告語氣，專業且精簡。"
-    elif "academic" in style:
-        tone_prompt = "使用學術性中文，保持邏輯嚴謹與精確。"
-    elif "patient" in style or "friendly" in style:
-        tone_prompt = "使用淺顯易懂的病患友善中文，保持醫學準確。"
-    else:
-        tone_prompt = "使用標準專業繁體中文，保持報告格式清晰。"
-    src_nums = sorted(extract_nums_units(req.source))
-    tagged_src = tag_lines_for_translation(req.source)
-    return (
-        "你是一位專門翻譯心臟超音波報告的專業醫學翻譯員。\n"
-        "請將以下英文報告翻譯成繁體中文（台灣用語）。\n"
-        "每一行開頭的 [Lxx] 標記代表原始報告中的一行，請嚴格遵守以下規則：\n"
-        "1. 保留每一個 [Lxx] 標記，不要翻譯、刪除或新增標記。\n"
-        "2. 每一個 [Lxx] 只能對應一行中文，不要把多行內容合併成一行，也不要拆成多行。\n"
-        "3. 不要省略任何含有 [Lxx] 的行，也不要額外新增說明文字。\n"
-        "4. 所有數值與單位必須與原文一致，不要自行推論或更改。\n"
-        "5. **下面列出的每一個數值都必須完整出現在翻譯中，不能省略或改寫。**\n\n"
-        f"原文中的數值列表：{', '.join(src_nums)}\n\n"
-        f"語氣設定：{tone_prompt}\n\n"
-        "=== 英文報告開始 ===\n"
-        f"{tagged_src}\n"
-        "=== 英文報告結束 ===\n"
-        "請直接輸出對應的繁體中文，每一行前面保留相同的 [Lxx] 標記。"
+def build_legacy_translate_prompt(req: TranslateReq) -> str:
+    instruction = (
+        "請將以下心臟超音波報告翻譯為臨床風格的繁體中文，並保持語氣一致且不加入推論。"
     )
+    body = req.source.strip()
+
+    return (
+        "Below is an instruction that describes a task, paired with an input that provides further context. "
+        "Write a response that appropriately completes the request.\n\n"
+        "### Instruction:\n"
+        f"{instruction}\n\n"
+        "### Input:\n"
+        f"{body}\n\n"
+        "### Response:\n"
+    )
+
+
+def build_strict_translate_prompt(req: TranslateReq) -> str:
+    instruction = (
+        "請將以下心臟超音波報告翻譯為臨床風格的繁體中文，並保持語氣一致且不加入推論。"
+        "請嚴格依照原文順序逐項翻譯為繁體中文，"
+        "不可摘要、不可重組句子、不可補充推論、"
+        "不可省略數值、單位、嚴重度、解剖位置或檢查結論；"
+        "原文中每個以逗號、句號或分號分隔的資訊片段都必須在譯文中對應一次；"
+        "括號內尺寸、E/E'、Qp/Qs、PG、GLS、肺動脈高壓、肺動脈主幹、"
+        "心包腔、側壁/外側壁/下外側壁、近端1/2、完全無收縮、"
+        "極輕度、輕度至中度、極少量等描述必須完整保留。"
+    )
+    body = req.source.strip()
+
+    return (
+        "### Instruction:\n"
+        f"{instruction}\n\n"
+        "### Input:\n"
+        f"{body}\n\n"
+        "### Response:\n"
+    )
+
+
+def build_translate_prompt(req: TranslateReq, model_name: str) -> str:
+    if "llama-3.2-3b-instruct-translator-deploy" in (model_name or ""):
+        return build_strict_translate_prompt(req)
+    return build_legacy_translate_prompt(req)
 
 
 def build_summary_prompt(req: SummarizeReq) -> str:
@@ -438,7 +453,7 @@ def translate(
     if "mistralv0.1" in model:
         prompt = build_mistral_v01_translate_prompt(req)
     else:
-        prompt = build_translate_prompt(req)
+        prompt = build_translate_prompt(req, model)
     raw_text = ollama_generate(
         model, prompt, req.max_new_tokens, req.temperature, req.top_p
     )
@@ -467,7 +482,7 @@ def translate_stream(
     if "mistralv0.1" in model:
         prompt = build_mistral_v01_translate_prompt(req)
     else:
-        prompt = build_translate_prompt(req)
+        prompt = build_translate_prompt(req, model)
     url = f"{OLLAMA_URL}/api/generate"
     payload = {
         "model": model,
@@ -575,7 +590,8 @@ def pipeline(req: PipelineReq, request: Request, x_api_key: str = Header(default
                 max_new_tokens=req.max_new_tokens_translate,
                 temperature=req.temperature_translate,
                 top_p=req.top_p,
-            )
+            ),
+            t_model,
         )
     raw_t = ollama_generate(
         t_model,

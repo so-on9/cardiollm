@@ -1,4 +1,12 @@
 const KEY = "supersecret";
+const HEART_IMG_LIGHT = "/static/Heart_diagram_nobg.png";
+const HEART_IMG_DARK_CANDIDATES = [
+    "/static/Heart_diagram_nobg_dark.png",
+    "/static/Heart_diagram_nobg_dark.webp",
+    "/static/Heart_diagram_nobg_dark.jpg",
+    "/static/Heart_diagram_nobg_dark.jpeg",
+    HEART_IMG_LIGHT,
+];
 
 /* ==============================
  * 0) 圖片/座標：固定 viewBox 比例 (1000 x 533.854)
@@ -285,10 +293,38 @@ async function init() {
         const sModels = all.filter(n => n.toLowerCase().includes('summarizer'));
 
         tSel.innerHTML = ''; sSel.innerHTML = '';
-        (tModels.length ? tModels : all).forEach(n => tSel.add(new Option(n, n)));
+
+        const translatorModels = tModels.length ? tModels : all;
+        const newTranslatorModels = translatorModels.filter(
+            n => n.toLowerCase().includes('translator-baseline150')
+        );
+        const oldTranslatorModels = translatorModels.filter(
+            n => !n.toLowerCase().includes('translator-baseline150')
+        );
+
+        function addDisabledLabel(selectEl, label) {
+            const opt = new Option(label, '');
+            opt.disabled = true;
+            opt.className = 'option-group-label';
+            selectEl.add(opt);
+        }
+
+        function addModels(selectEl, models) {
+            models.forEach(n => selectEl.add(new Option(n, n)));
+        }
+
+        if (newTranslatorModels.length) {
+            addDisabledLabel(tSel, '新模型');
+            addModels(tSel, newTranslatorModels);
+        }
+        if (oldTranslatorModels.length) {
+            addDisabledLabel(tSel, '舊模型');
+            addModels(tSel, oldTranslatorModels);
+        }
+
         (sModels.length ? sModels : all).forEach(n => sSel.add(new Option(n, n)));
 
-        if (data.defaults?.translator && tModels.includes(data.defaults.translator)) {
+        if (data.defaults?.translator && translatorModels.includes(data.defaults.translator)) {
             tSel.value = data.defaults.translator;
         }
         if (data.defaults?.summarizer && sModels.includes(data.defaults.summarizer)) {
@@ -301,12 +337,47 @@ async function init() {
  * 6. 深淺色主題
  * --------------------------------------------------*/
 const themeBtn = document.getElementById('themeToggle');
+let heartThemeToken = 0;
+
+function loadImageCandidate(img, candidates, token, idx = 0) {
+    if (!img || token !== heartThemeToken) return;
+    const src = candidates[idx];
+    if (!src) {
+        img.src = HEART_IMG_LIGHT;
+        return;
+    }
+
+    const probe = new Image();
+    probe.onload = () => {
+        if (token !== heartThemeToken) return;
+        img.src = src;
+    };
+    probe.onerror = () => {
+        if (token !== heartThemeToken) return;
+        loadImageCandidate(img, candidates, token, idx + 1);
+    };
+    probe.src = src;
+}
+
+function applyThemeHeartImage(theme) {
+    const heartImg = document.getElementById('heartImg');
+    if (!heartImg) return;
+    heartThemeToken += 1;
+    const token = heartThemeToken;
+    if (theme === 'dark') {
+        loadImageCandidate(heartImg, HEART_IMG_DARK_CANDIDATES, token);
+    } else {
+        heartImg.src = HEART_IMG_LIGHT;
+    }
+}
+
 function initTheme() {
     const saved = localStorage.getItem('theme');
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     const theme = saved || (prefersDark ? 'dark' : 'light');
     document.documentElement.setAttribute('data-theme', theme);
     themeBtn.textContent = theme === 'dark' ? '☀' : '☾';
+    applyThemeHeartImage(theme);
 }
 themeBtn.onclick = () => {
     const cur = document.documentElement.getAttribute('data-theme');
@@ -314,6 +385,7 @@ themeBtn.onclick = () => {
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('theme', next);
     themeBtn.textContent = next === 'dark' ? '☀' : '☾';
+    applyThemeHeartImage(next);
 };
 
 /* ---------------------------------------------------
