@@ -1,26 +1,42 @@
 :root {
-    --bg-dark: #050505;
-    --card-bg: rgba(20, 20, 25, 0.6);
-    --border: rgba(255, 255, 255, 0.1);
-    --accent: #3b82f6;
-    --accent-glow: rgba(59, 130, 246, 0.5);
-    --text-main: #f1f5f9;
-    --text-muted: #94a3b8;
+    --bg-dark: #313338;
+    --page-bg:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.018) 0%, transparent 18%),
+        linear-gradient(135deg, #313338 0%, #2b2d31 54%, #232428 100%);
+    --page-overlay:
+        linear-gradient(rgba(255, 255, 255, 0.012) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.01) 1px, transparent 1px);
+    --page-overlay-size: 48px 48px;
+    --card-bg: rgba(43, 45, 49, 0.82);
+    --border: rgba(148, 155, 164, 0.18);
+    --accent: #5865f2;
+    --accent-glow: rgba(88, 101, 242, 0.30);
+    --text-main: #f2f3f5;
+    --text-muted: #b5bac1;
     --danger: #ef4444;
     --danger-glow: rgba(239, 68, 68, 0.6);
-    --input-bg: rgba(0, 0, 0, 0.3);
+    --input-bg: rgba(30, 31, 34, 0.82);
     /* 深色模式下改成近黑底，搭配白字版心臟圖 */
     --viz-bg:
-        radial-gradient(circle at 20% 12%, rgba(255, 255, 255, 0.025), transparent 18%),
-        radial-gradient(circle at 82% 14%, rgba(148, 163, 184, 0.03), transparent 16%),
-        linear-gradient(160deg, #0b0d11 0%, #08090c 54%, #050607 100%);
-    --viz-border: rgba(255, 255, 255, 0.07);
-    --viz-shadow: inset 0 0 22px rgba(255, 255, 255, 0.015), 0 12px 30px rgba(0, 0, 0, 0.42);
+        radial-gradient(circle at 26% 18%, rgba(88, 101, 242, 0.08), transparent 24%),
+        radial-gradient(circle at 76% 20%, rgba(181, 186, 193, 0.06), transparent 20%),
+        linear-gradient(160deg, #2b2d31 0%, #25262b 54%, #1e1f22 100%);
+    --viz-border: rgba(148, 155, 164, 0.16);
+    --viz-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025), 0 14px 34px rgba(0, 0, 0, 0.34);
 }
 
 [data-theme="light"] {
-    --bg-dark: #f0f4f8;
-    --card-bg: rgba(255, 255, 255, 0.7);
+    --bg-dark: #eef3f7;
+    --page-bg:
+        radial-gradient(circle at 8% 10%, rgba(125, 174, 190, 0.22), transparent 30%),
+        radial-gradient(circle at 88% 16%, rgba(180, 196, 204, 0.22), transparent 26%),
+        radial-gradient(circle at 66% 92%, rgba(206, 216, 225, 0.28), transparent 32%),
+        linear-gradient(135deg, #edf4f7 0%, #f7f9fb 48%, #eef2f5 100%);
+    --page-overlay:
+        linear-gradient(rgba(71, 85, 105, 0.024) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(71, 85, 105, 0.018) 1px, transparent 1px);
+    --page-overlay-size: 52px 52px;
+    --card-bg: rgba(255, 255, 255, 0.76);
     --border: rgba(0, 0, 0, 0.1);
     --accent: #2563eb;
     --accent-glow: rgba(37, 99, 235, 0.3);
@@ -29,18 +45,22 @@
     --danger: #dc2626;
     --danger-glow: rgba(220, 38, 38, 0.4);
     --input-bg: rgba(255, 255, 255, 0.8);
-    --viz-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(241, 245, 249, 0.88) 100%);
-    --viz-border: rgba(0, 0, 0, 0.1);
-    --viz-shadow: inset 0 0 20px rgba(15, 23, 42, 0.04);
+    --viz-bg:
+        radial-gradient(circle at 24% 16%, rgba(125, 174, 190, 0.12), transparent 26%),
+        linear-gradient(180deg, rgba(252, 253, 254, 0.96) 0%, rgba(239, 244, 248, 0.92) 100%);
+    --viz-border: rgba(71, 85, 105, 0.14);
+    --viz-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 16px 34px rgba(51, 65, 85, 0.08);
 }
 
 body {
     margin: 0;
+    background: var(--page-bg);
     background-color: var(--bg-dark);
+    background-attachment: fixed;
     color: var(--text-main);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     min-height: 100vh;
-    transition: background-color 0.3s ease, color 0.3s ease;
+    transition: background 0.3s ease, background-color 0.3s ease, color 0.3s ease;
     overflow-x: hidden;
     overflow-y: auto;
 }
@@ -52,12 +72,12 @@ body::before {
     left: 0;
     width: 100%;
     height: 100%;
-    background-image:
-        radial-gradient(circle at 10% 20%, var(--accent-glow) 0%, transparent 40%),
-        radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 40%);
+    background-image: var(--page-overlay);
+    background-size: var(--page-overlay-size);
     z-index: -1;
     pointer-events: none;
-    opacity: 0.5;
+    opacity: 0.62;
+    mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 82%, transparent 100%);
 }
 
 ::-webkit-scrollbar {
@@ -161,6 +181,17 @@ input {
     font-size: 14px;
     transition: 0.2s;
     box-sizing: border-box;
+}
+
+input[type="number"] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }
 
 select:focus,

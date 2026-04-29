@@ -46,3 +46,6 @@ ollama_store/
 *.pth
 *.ckpt
 *.safetensors
+
+# Local handoff / writing notes
+PAPER_HANDOFF.md

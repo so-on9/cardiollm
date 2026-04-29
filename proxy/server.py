@@ -38,6 +38,97 @@ def dedup_summary_lines(text: str) -> str:
     return "\n".join(result_lines).strip()
 
 
+SUMMARY_ANATOMY_TERMS = (
+    "左心房", "右心房", "左心室", "右心室",
+    "主動脈根部", "升主動脈", "主動脈瓣", "主動脈",
+    "肺動脈主幹", "肺動脈幹", "肺動脈瓣", "肺動脈",
+    "肺循環", "右心壓力", "右心",
+    "二尖瓣", "三尖瓣", "心包腔", "心包膜",
+    "室間隔", "心室中隔", "心尖", "下壁", "側壁", "外側壁",
+)
+
+UNSUPPORTED_CLAIM_TERMS = (
+    "正常", "無顯著", "未見", "無明顯", "沒有明顯",
+    "狹窄", "肺高壓", "肺動脈高壓", "壁運動正常",
+    "壓力升高", "壓力上升", "可能與",
+)
+
+
+def remove_extra_numbers_from_line(line: str, allowed_numbers: set[str]) -> str:
+    cleaned = line
+    for raw in NUM_VALUE_RE.findall(line):
+        try:
+            key = f"{float(raw):g}"
+        except Exception:
+            key = raw
+        if key in allowed_numbers:
+            continue
+        pattern = rf"\s*[:：]?\s*{re.escape(raw)}\s*(?:cm|mm|公分|毫米|毫米汞柱|%|％)?"
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"[：:，,、；;]\s*$", "", cleaned).strip()
+    return cleaned
+
+
+def sanitize_summary_against_source(source: str, summary: str) -> str:
+    if not source or not summary:
+        return summary
+
+    source_norm = source.lower()
+    allowed_numbers = extract_nums_units(source)
+    kept_lines: list[str] = []
+
+    for line in summary.splitlines():
+        raw = line.strip()
+        if not raw:
+            if kept_lines and kept_lines[-1]:
+                kept_lines.append("")
+            continue
+
+        is_heading = raw.startswith("【") or bool(re.match(r"^[一二三四五六七八九十]+[、.．]", raw))
+        if is_heading:
+            kept_lines.append(raw)
+            continue
+
+        cleaned = remove_extra_numbers_from_line(raw, allowed_numbers)
+        if not cleaned:
+            continue
+
+        cleaned_norm = cleaned.lower()
+        unsupported_anatomy = [
+            term for term in SUMMARY_ANATOMY_TERMS
+            if term in cleaned and term not in source
+        ]
+        unsupported_claim = [
+            term for term in UNSUPPORTED_CLAIM_TERMS
+            if term in cleaned and term not in source
+        ]
+
+        if unsupported_anatomy or unsupported_claim:
+            continue
+
+        kept_lines.append(cleaned)
+
+    # Remove headings that ended up with no content beneath them.
+    compact: list[str] = []
+    for idx, line in enumerate(kept_lines):
+        if not line:
+            continue
+        is_heading = line.startswith("【") or bool(re.match(r"^[一二三四五六七八九十]+[、.．]", line))
+        if is_heading:
+            has_content = any(
+                next_line
+                and not next_line.startswith("【")
+                and not re.match(r"^[一二三四五六七八九十]+[、.．]", next_line)
+                for next_line in kept_lines[idx + 1 :]
+            )
+            if not has_content:
+                continue
+        compact.append(line)
+
+    return "\n".join(compact).strip() or summary
+
+
 def mistral_inst_prompt(instruction: str, body: str) -> str:
     return f"<s>[INST] {instruction.strip()}\n{body.strip()} [/INST]"
 
@@ -317,7 +408,105 @@ def build_translate_prompt(req: TranslateReq, model_name: str) -> str:
     return build_legacy_translate_prompt(req)
 
 
-def build_summary_prompt(req: SummarizeReq) -> str:
+CLINICAL_SUMMARY_SUFFIX = (
+    "請以繁體中文輸出保守、忠實、結構化的臨床摘要；"
+    "優先整理原文已明確出現的心臟結構與功能、主要異常發現、綜合解說與建議；"
+    "保留重要數值、器官、瓣膜、嚴重度與關鍵檢查結論；"
+    "不可新增原文沒有的數值、器官、解剖位置、嚴重度、診斷、病理生理推論或治療建議；"
+    "不可自行把壓差或量測值推論成新的疾病嚴重度；"
+    "若原文語氣保守或不確定，摘要中也必須保留不確定性；"
+    "若沒有足夠依據，寧可省略延伸解釋，也不要補寫；"
+    "請嚴格使用以下固定格式，若某節沒有足夠依據可省略該節，但不可改寫節名："
+    "【主要異常】、【心臟功能】、【建議】；"
+    "每節最多 2 點，每點 1 句，總句數盡量控制在 5 句以內；"
+    "只可摘錄原文已明確出現的異常與結論，不可為了摘要完整而主動補齊正常項目；"
+    "不得輸出綜合敘事段落、病因推測、風險延伸解說或額外衛教語句；"
+    "若原文只有數值而沒有明確結論，請保留數值，不可自行判讀成新的異常。"
+)
+
+ACADEMIC_SUMMARY_SUFFIX = (
+    "請以繁體中文輸出較正式的學術風格結構化摘要，"
+    "重點整理心臟結構與功能、主要異常發現、可能的病理生理意義與綜合建議；"
+    "保留重要數值、器官、瓣膜、嚴重度與關鍵檢查結論；"
+    "不可捏造原文沒有的診斷、數值、器官或治療建議。"
+)
+
+PATIENT_SUMMARY_SUFFIX = (
+    "請以繁體中文輸出白話、容易理解的摘要，"
+    "向非醫療背景讀者說明重點發現、可能代表的意義與後續建議；"
+    "可簡化術語，但不可捏造原文沒有的診斷、數值、器官或治療建議。"
+)
+
+SUMMARY_REVISION_PROMPT_TEMPLATE = """### Instruction:
+請檢查下列臨床摘要草稿是否遺漏原文中已明確出現的主要異常、重要數值、嚴重度、器官/瓣膜結構與關鍵檢查結論。若有遺漏，請輸出修正後的繁體中文臨床摘要。
+重要原則：
+1. 可以保留有原文依據的摘要化補述，但不可新增原文沒有的數值、器官、嚴重度、診斷或病理生理推論。
+2. 優先補回「主要異常」與「心臟功能」中的核心 finding；若只是次要正常描述，可不必補齊。
+3. 若原文只有數值而沒有明確結論，可保留數值，但不可自行升級成新的疾病判讀。
+4. 請維持簡潔、結構化的臨床摘要格式，不要寫成長段評論。
+5. 請優先在原草稿基礎上補回遺漏的重點，不要整篇大幅改寫成新的敘事版本。
+6. 請嚴格使用以下固定格式，若某節沒有足夠依據可省略該節：
+【主要異常】
+- ...
+【心臟功能】
+- ...
+【建議】
+- ...
+7. 每節最多 2 點，每點 1 句；總句數盡量控制在 6 句以內。
+8. 若原文已有明確結論（例如有肺高壓、收縮功能下降、舒張壓升高、重度狹窄/逆流），應優先補回；若原文僅提供量測值而未明確下結論，不可自行推論成新診斷。
+9. 特別優先檢查是否遺漏以下資訊：
+   - 舒張功能與壓力指標：E/A、E/E'、舒張功能障礙、舒張壓升高、充盈壓升高
+   - 右心與肺循環：肺高壓、肺動脈主幹/肺動脈幹擴張、右心房/右心室擴大、三尖瓣壓力梯度
+   - 區域性壁運動：心尖、側壁、外側壁、下壁、隔部、前壁等局部異常位置
+   - 關鍵嚴重度：極輕度、輕度至中度、中度至重度、重度、少量、極少量
+   - 其他高價值 finding：心包積液、心包腔、瓣膜狹窄/逆流嚴重度、肺動脈瓣/主動脈根部/右心房面積等
+10. 若原文同時出現「數值 + 已明確判讀」，優先保留已明確判讀，並視需要保留最關鍵數值，不必把所有次要數值全部重抄。
+
+### Input:
+原文：
+{input_text}
+
+草稿：
+{draft_text}
+
+### Response:
+"""
+
+
+def build_llama_summary_prompt(req: SummarizeReq) -> str:
+    style = (req.style or "").strip().lower()
+    instruction = "請摘要以下心臟超音波報告"
+    if "academic" in style:
+        instruction = f"{instruction}。{ACADEMIC_SUMMARY_SUFFIX}"
+    elif "patient" in style or "friendly" in style or "simple" in style:
+        instruction = f"{instruction}。{PATIENT_SUMMARY_SUFFIX}"
+    else:
+        instruction = f"{instruction}。{CLINICAL_SUMMARY_SUFFIX}"
+
+    return (
+        "### Instruction:\n"
+        f"{instruction}\n\n"
+        "### Input:\n"
+        f"{req.source.strip()}\n\n"
+        "### Response:\n"
+    )
+
+
+def build_summary_revision_prompt(input_text: str, draft_text: str) -> str:
+    return SUMMARY_REVISION_PROMPT_TEMPLATE.format(
+        input_text=input_text.strip(),
+        draft_text=draft_text.strip(),
+    )
+
+
+def uses_summary_revision(model_name: str) -> bool:
+    return "llama-3.2-3b-instruct-summarizer-clinical-v4" in (model_name or "")
+
+
+def build_summary_prompt(req: SummarizeReq, model_name: str = "") -> str:
+    if "llama-3.2-3b-instruct-summarizer-clinical-v4" in (model_name or ""):
+        return build_llama_summary_prompt(req)
+
     style = (req.style or "").strip().lower()
     if "clinical" in style:
         tone_prompt = "Write a concise structured clinical summary focusing on cardiac function, abnormalities, and key impressions."
@@ -552,10 +741,18 @@ def summarize(
     if "mistralv0.1" in model:
         prompt = build_mistral_v01_summary_prompt(req)
     else:
-        prompt = build_summary_prompt(req)
+        prompt = build_summary_prompt(req, model)
     text = ollama_generate(
         model, prompt, req.max_new_tokens, req.temperature, req.top_p
     ).strip()
+    if uses_summary_revision(model) and text:
+        revision_prompt = build_summary_revision_prompt(req.source, text)
+        revised_text = ollama_generate(
+            model, revision_prompt, req.max_new_tokens, 0.1, req.top_p
+        ).strip()
+        if revised_text:
+            text = revised_text
+        text = sanitize_summary_against_source(req.source, text)
     text = dedup_summary_lines(text)
     src_set = extract_nums_units(req.source)
     tgt_set = extract_nums_units(text)
@@ -614,7 +811,8 @@ def pipeline(req: PipelineReq, request: Request, x_api_key: str = Header(default
                 max_new_tokens=req.max_new_tokens_summary,
                 temperature=req.temperature_summary,
                 top_p=req.top_p,
-            )
+            ),
+            s_model,
         )
     s = ollama_generate(
         s_model,
@@ -623,6 +821,18 @@ def pipeline(req: PipelineReq, request: Request, x_api_key: str = Header(default
         req.temperature_summary,
         req.top_p,
     ).strip()
+    if uses_summary_revision(s_model) and s:
+        revision_prompt = build_summary_revision_prompt(t, s)
+        revised_summary = ollama_generate(
+            s_model,
+            revision_prompt,
+            req.max_new_tokens_summary,
+            0.1,
+            req.top_p,
+        ).strip()
+        if revised_summary:
+            s = revised_summary
+        s = sanitize_summary_against_source(t, s)
     src_set = extract_nums_units(req.source)
     trans_set = extract_nums_units(t)
     sum_set = extract_nums_units(s)

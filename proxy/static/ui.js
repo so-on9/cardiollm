@@ -322,12 +322,27 @@ async function init() {
             addModels(tSel, oldTranslatorModels);
         }
 
-        (sModels.length ? sModels : all).forEach(n => sSel.add(new Option(n, n)));
+        const summarizerModels = sModels.length ? sModels : all;
+        const newSummarizerModels = summarizerModels.filter(
+            n => n.toLowerCase().includes('summarizer-clinical-v4')
+        );
+        const oldSummarizerModels = summarizerModels.filter(
+            n => !n.toLowerCase().includes('summarizer-clinical-v4')
+        );
+
+        if (newSummarizerModels.length) {
+            addDisabledLabel(sSel, '新模型');
+            addModels(sSel, newSummarizerModels);
+        }
+        if (oldSummarizerModels.length) {
+            addDisabledLabel(sSel, '舊模型');
+            addModels(sSel, oldSummarizerModels);
+        }
 
         if (data.defaults?.translator && translatorModels.includes(data.defaults.translator)) {
             tSel.value = data.defaults.translator;
         }
-        if (data.defaults?.summarizer && sModels.includes(data.defaults.summarizer)) {
+        if (data.defaults?.summarizer && summarizerModels.includes(data.defaults.summarizer)) {
             sSel.value = data.defaults.summarizer;
         }
     } catch (e) { }
