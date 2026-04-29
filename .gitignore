@@ -48,4 +48,4 @@ ollama_store/
 *.safetensors
 
 # Local handoff / writing notes
-PAPER_HANDOFF.md
+*PAPER_HANDOFF.md
