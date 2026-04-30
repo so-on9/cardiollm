@@ -81,8 +81,8 @@ COOKIE_SECURE=true
 KEEP_ALIVE=30m
 OLLAMA_BIND=127.0.0.1
 OLLAMA_PORT=11434
-OLLAMA_TRANS_MODEL=llama-3.2-3b-instruct-translator-baseline150:q8
-OLLAMA_SUM_MODEL=llama-3.2-3b-instruct-summarizer-clinical-v4:q5
+OLLAMA_TRANS_MODEL=replace-with-your-translator-model:q8
+OLLAMA_SUM_MODEL=replace-with-your-summarizer-model:q5
 ```
 
 注意：`.env` 內含密碼與金鑰，不應上傳到 git。
@@ -95,15 +95,15 @@ OLLAMA_SUM_MODEL=llama-3.2-3b-instruct-summarizer-clinical-v4:q5
 ~/cardiollm/gguf/
 ```
 
-目前常用檔案命名範例：
+GGUF 檔案命名範例：
 
 ```text
-llama32-3b-baseline150-q4.gguf
-llama32-3b-baseline150-q5.gguf
-llama32-3b-baseline150-q8.gguf
-llama32-3b-summary-clinical-v4-q4.gguf
-llama32-3b-summary-clinical-v4-q5.gguf
-llama32-3b-summary-clinical-v4-q8.gguf
+your-translator-model-q4.gguf
+your-translator-model-q5.gguf
+your-translator-model-q8.gguf
+your-summarizer-model-q4.gguf
+your-summarizer-model-q5.gguf
+your-summarizer-model-q8.gguf
 ```
 
 GGUF 通常很大，不建議直接放進 git。若要移植到新機器，請另外複製 `gguf/` 或從 Hugging Face 下載。
@@ -120,8 +120,8 @@ Modelfile 放在：
 
 ```bash
 docker exec -it ollama bash
-ollama create llama-3.2-3b-instruct-translator-baseline150:q8 -f /modelfile/Llama32-Baseline150-Q8.Modelfile
-ollama create llama-3.2-3b-instruct-summarizer-clinical-v4:q5 -f /modelfile/Llama32-Summary-ClinicalV4-Q5.Modelfile
+ollama create your-translator-model:q8 -f /modelfile/Your-Translator-Q8.Modelfile
+ollama create your-summarizer-model:q5 -f /modelfile/Your-Summarizer-Q5.Modelfile
 ollama list
 ```
 
@@ -232,13 +232,13 @@ docker compose up -d --force-recreate --no-deps ollama
 - 下方水平按鈕選 `Q4` / `Q5` / `Q8`
 - 若某模型沒有對應量化版本，該按鈕會反灰
 - 送出時前端會自動組回完整 Ollama tag，例如：
-  - `llama-3.2-3b-instruct-translator-baseline150:q8`
-  - `llama-3.2-3b-instruct-summarizer-clinical-v4:q5`
+  - `your-translator-model:q8`
+  - `your-summarizer-model:q5`
 
-目前建議：
+設定範例：
 
-- 翻譯模型：`llama-3.2-3b-instruct-translator-baseline150:q8`
-- 摘要模型：`llama-3.2-3b-instruct-summarizer-clinical-v4:q5`
+- 翻譯模型：`your-translator-model:q8`
+- 摘要模型：`your-summarizer-model:q5`
 
 ## 安全注意事項
 
@@ -246,6 +246,7 @@ docker compose up -d --force-recreate --no-deps ollama
 - Ollama API 預設只綁定 `127.0.0.1`，不要任意改成公開位址
 - GGUF 模型檔案很大，通常不放 git
 - 本系統輸出應作為醫療人員輔助，不能取代醫師最終判讀
+- 喔愛 蝦咪系愛 你看我的眼神怎那麼可愛
 
 ## Troubleshooting
 
@@ -273,4 +274,3 @@ cd ~/cardiollm
 ./restart_ollama.sh deep
 tail -n 100 ollama_store/restart_ollama.log
 ```
-
