@@ -1,6 +1,6 @@
 # CardioLLM 心臟超音波翻譯 / 摘要系統
 
-![姆茲咪](docs/images/ui-preview.png)
+![姆茲咪](docs/images/mutsumi.jpg)
 姆茲咪超級可愛
 這個專案是台中榮總心臟科使用的心臟超音波報告翻譯與臨床摘要 Web 系統。  
 前端提供報告輸入、翻譯模型選擇、摘要模型選擇、量化版本 Q4/Q5/Q8 選擇，以及心臟示意圖標註；後端透過 Ollama 載入本機 GGUF 模型進行推論。
