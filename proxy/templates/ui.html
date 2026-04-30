@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <title>台中榮總心臟科翻譯/摘要LLM</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/ui.css?v=20260421b">
+  <link rel="stylesheet" href="/static/ui.css?v=20260429r">
 </head>
 
 <body>
@@ -19,9 +19,11 @@
 
       <label>翻譯模型</label>
       <select id="transModel"></select>
+      <div id="transQuant" class="quant-row" aria-label="翻譯模型量化選項"></div>
 
       <label>摘要模型</label>
       <select id="sumModel"></select>
+      <div id="sumQuant" class="quant-row" aria-label="摘要模型量化選項"></div>
 
       <label>風格</label>
       <select id="style">
@@ -141,7 +143,7 @@
     </main>
   </div>
 
-  <script src="/static/ui.js?v=20260421b"></script>
+  <script src="/static/ui.js?v=20260429r"></script>
 </body>
 
 </html>

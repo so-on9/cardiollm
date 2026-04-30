@@ -183,6 +183,11 @@ input {
     box-sizing: border-box;
 }
 
+select {
+    padding-right: 34px;
+    text-overflow: ellipsis;
+}
+
 input[type="number"] {
     appearance: textfield;
     -moz-appearance: textfield;
@@ -221,6 +226,45 @@ select option.option-group-label {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
+}
+
+.quant-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 8px 0 4px;
+}
+
+.quant-pill {
+    width: 100%;
+    margin: 0;
+    padding: 7px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1;
+    box-shadow: none;
+}
+
+.quant-pill:not(:disabled):hover {
+    border-color: var(--accent);
+    color: var(--text-main);
+    transform: translateY(-1px);
+}
+
+.quant-pill.is-active {
+    border-color: var(--accent);
+    background: linear-gradient(135deg, var(--accent), #4f46e5);
+    color: #fff;
+    box-shadow: 0 8px 18px var(--accent-glow);
+}
+
+.quant-pill:disabled {
+    cursor: not-allowed;
+    opacity: 0.35;
+    text-decoration: line-through;
 }
 
 button {

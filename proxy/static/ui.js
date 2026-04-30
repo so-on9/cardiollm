@@ -282,6 +282,111 @@ async function api(path, body) {
 /* ---------------------------------------------------
  * 5. 初始化模型清單
  * --------------------------------------------------*/
+const QUANT_ORDER = ["q4", "q5", "q8"];
+const QUANT_LABELS = { q4: "Q4", q5: "Q5", q8: "Q8" };
+const modelPickerState = {
+    translator: { catalog: {}, selectedQuant: "" },
+    summarizer: { catalog: {}, selectedQuant: "" },
+};
+
+function splitModelTag(name) {
+    const idx = name.lastIndexOf(":");
+    if (idx < 0) return { base: name, quant: "", full: name };
+    return {
+        base: name.slice(0, idx),
+        quant: name.slice(idx + 1).toLowerCase(),
+        full: name,
+    };
+}
+
+function buildCatalog(names) {
+    const catalog = {};
+    names.forEach((name) => {
+        const { base, quant, full } = splitModelTag(name);
+        if (!catalog[base]) catalog[base] = { base, quants: {}, fallback: full };
+        if (quant) catalog[base].quants[quant] = full;
+        else catalog[base].fallback = full;
+    });
+    return catalog;
+}
+
+function addDisabledLabel(selectEl, label) {
+    const opt = new Option(label, "");
+    opt.disabled = true;
+    opt.className = "option-group-label";
+    selectEl.add(opt);
+}
+
+function addBaseModels(selectEl, bases) {
+    bases.forEach((base) => selectEl.add(new Option(displayModelName(base), base)));
+}
+
+function displayModelName(base) {
+    return base
+        .replace(/^llama-3\.2-3b-instruct-/, "llama3.2-3b-")
+        .replace("-translator-baseline150", "-trans-baseline150")
+        .replace("-summarizer-clinical-v4", "-sum-clinical-v4")
+        .replace("-translator", "-trans")
+        .replace("-summarizer", "-sum");
+}
+
+function firstEnabledValue(selectEl) {
+    return [...selectEl.options].find((opt) => !opt.disabled && opt.value)?.value || "";
+}
+
+function chooseQuant(entry, preferred = "") {
+    const available = entry ? entry.quants : {};
+    if (preferred && available[preferred]) return preferred;
+    return QUANT_ORDER.find((q) => available[q]) || "";
+}
+
+function defaultBaseAndQuant(defaultName, catalog) {
+    if (!defaultName) return { base: "", quant: "" };
+    const parsed = splitModelTag(defaultName);
+    if (catalog[parsed.base]) return { base: parsed.base, quant: parsed.quant };
+    if (catalog[defaultName]) return { base: defaultName, quant: "" };
+    return { base: "", quant: "" };
+}
+
+function renderQuantButtons(kind, preferredQuant = "") {
+    const state = modelPickerState[kind];
+    const selectId = kind === "translator" ? "transModel" : "sumModel";
+    const quantId = kind === "translator" ? "transQuant" : "sumQuant";
+    const selectEl = document.getElementById(selectId);
+    const quantEl = document.getElementById(quantId);
+    const entry = state.catalog[selectEl.value];
+    const selected = chooseQuant(entry, preferredQuant || state.selectedQuant);
+
+    state.selectedQuant = selected;
+    quantEl.innerHTML = "";
+
+    QUANT_ORDER.forEach((q) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "quant-pill";
+        btn.textContent = QUANT_LABELS[q];
+        btn.disabled = !entry || !entry.quants[q];
+        btn.title = btn.disabled ? `${QUANT_LABELS[q]} 版本目前不存在` : `使用 ${QUANT_LABELS[q]}`;
+        if (q === selected) btn.classList.add("is-active");
+        btn.onclick = () => {
+            if (btn.disabled) return;
+            state.selectedQuant = q;
+            renderQuantButtons(kind, q);
+        };
+        quantEl.appendChild(btn);
+    });
+}
+
+function selectedModelTag(kind) {
+    const state = modelPickerState[kind];
+    const selectId = kind === "translator" ? "transModel" : "sumModel";
+    const selectEl = document.getElementById(selectId);
+    const entry = state.catalog[selectEl.value];
+    if (!entry) return selectEl.value;
+    const quant = chooseQuant(entry, state.selectedQuant);
+    return entry.quants[quant] || entry.fallback || selectEl.value;
+}
+
 async function init() {
     try {
         const data = await api('/models');
@@ -295,56 +400,54 @@ async function init() {
         tSel.innerHTML = ''; sSel.innerHTML = '';
 
         const translatorModels = tModels.length ? tModels : all;
-        const newTranslatorModels = translatorModels.filter(
+        modelPickerState.translator.catalog = buildCatalog(translatorModels);
+        const translatorBases = Object.keys(modelPickerState.translator.catalog).sort();
+        const newTranslatorModels = translatorBases.filter(
             n => n.toLowerCase().includes('translator-baseline150')
         );
-        const oldTranslatorModels = translatorModels.filter(
+        const oldTranslatorModels = translatorBases.filter(
             n => !n.toLowerCase().includes('translator-baseline150')
         );
 
-        function addDisabledLabel(selectEl, label) {
-            const opt = new Option(label, '');
-            opt.disabled = true;
-            opt.className = 'option-group-label';
-            selectEl.add(opt);
-        }
-
-        function addModels(selectEl, models) {
-            models.forEach(n => selectEl.add(new Option(n, n)));
-        }
-
         if (newTranslatorModels.length) {
             addDisabledLabel(tSel, '新模型');
-            addModels(tSel, newTranslatorModels);
+            addBaseModels(tSel, newTranslatorModels);
         }
         if (oldTranslatorModels.length) {
             addDisabledLabel(tSel, '舊模型');
-            addModels(tSel, oldTranslatorModels);
+            addBaseModels(tSel, oldTranslatorModels);
         }
 
         const summarizerModels = sModels.length ? sModels : all;
-        const newSummarizerModels = summarizerModels.filter(
+        modelPickerState.summarizer.catalog = buildCatalog(summarizerModels);
+        const summarizerBases = Object.keys(modelPickerState.summarizer.catalog).sort();
+        const newSummarizerModels = summarizerBases.filter(
             n => n.toLowerCase().includes('summarizer-clinical-v4')
         );
-        const oldSummarizerModels = summarizerModels.filter(
+        const oldSummarizerModels = summarizerBases.filter(
             n => !n.toLowerCase().includes('summarizer-clinical-v4')
         );
 
         if (newSummarizerModels.length) {
             addDisabledLabel(sSel, '新模型');
-            addModels(sSel, newSummarizerModels);
+            addBaseModels(sSel, newSummarizerModels);
         }
         if (oldSummarizerModels.length) {
             addDisabledLabel(sSel, '舊模型');
-            addModels(sSel, oldSummarizerModels);
+            addBaseModels(sSel, oldSummarizerModels);
         }
 
-        if (data.defaults?.translator && translatorModels.includes(data.defaults.translator)) {
-            tSel.value = data.defaults.translator;
-        }
-        if (data.defaults?.summarizer && summarizerModels.includes(data.defaults.summarizer)) {
-            sSel.value = data.defaults.summarizer;
-        }
+        const tDefault = defaultBaseAndQuant(data.defaults?.translator, modelPickerState.translator.catalog);
+        const sDefault = defaultBaseAndQuant(data.defaults?.summarizer, modelPickerState.summarizer.catalog);
+
+        tSel.value = tDefault.base || firstEnabledValue(tSel);
+        sSel.value = sDefault.base || firstEnabledValue(sSel);
+
+        renderQuantButtons("translator", tDefault.quant || "q8");
+        renderQuantButtons("summarizer", "q5");
+
+        tSel.onchange = () => renderQuantButtons("translator", "q8");
+        sSel.onchange = () => renderQuantButtons("summarizer", "q5");
     } catch (e) { }
 }
 
@@ -436,8 +539,8 @@ document.getElementById('btn-pipeline').onclick = async () => {
     try {
         const res = await api('/pipeline', {
             source: src,
-            translator_model: document.getElementById('transModel').value,
-            summarizer_model: document.getElementById('sumModel').value,
+            translator_model: selectedModelTag("translator"),
+            summarizer_model: selectedModelTag("summarizer"),
             style: document.getElementById('style').value,
             max_new_tokens_translate: +document.getElementById('maxT').value,
             temperature_translate: +document.getElementById('tempT').value,
