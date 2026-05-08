@@ -8,7 +8,7 @@
 Browser
   -> CubeOS / K8s Ingress
   -> cardiollm-proxy Pod
-  -> http://replace-with-ollama-host:11434
+  -> http://140.128.103.191:11434
   -> 5070 Ti Ollama + GGUF
 ```
 
@@ -29,9 +29,10 @@ cardiollm-k8s/
 ## 預設遠端 Ollama
 
 ```env
-OLLAMA_BASE_URL=http://replace-with-ollama-host:11434
-OLLAMA_TRANS_MODEL=replace-with-your-translator-model
-OLLAMA_SUM_MODEL=replace-with-your-summarizer-model
+OLLAMA_BASE_URL=http://140.128.103.191:11434
+OLLAMA_TRANS_MODEL=llama-3.2-3b-instruct-translator-baseline150:q8
+OLLAMA_SUM_MODEL=llama-3.2-3b-instruct-summarizer-clinical-v4:q5
+UI_PASSWORD=hpcverygood
 ```
 
 這些模型必須已經在 5070 Ti 主機上的 Ollama 裡註冊完成。K8s 版本只傳送 API request，不會直接讀取 `gguf/`。
@@ -40,7 +41,6 @@ OLLAMA_SUM_MODEL=replace-with-your-summarizer-model
 
 ```bash
 cd ~/cardiollm-k8s
-cp .env.k8s.example .env
 docker compose up -d --build
 ```
 
@@ -55,21 +55,14 @@ curl http://127.0.0.1:8000/api/health/ollama
 
 ```bash
 cd ~/cardiollm-k8s
-docker build -t replace-with-your-registry/cardiollm-k8s:latest .
-docker push replace-with-your-registry/cardiollm-k8s:latest
+docker build -t cardiollm-k8s:latest .
 ```
 
-接著修改 `k8s/deployment.yaml`，把 `replace-with-your-registry/cardiollm-k8s:latest` 換成實際 image。
+`k8s/deployment.yaml` 預設使用 `cardiollm-k8s:latest`。若部署到多節點叢集，請先把 image 匯入每個節點或改成你的 registry image。
 
 ## K8s 部署
 
-先建立 secret：
-
-```bash
-cp k8s/secret.example.yaml k8s/secret.yaml
-```
-
-修改 `k8s/secret.yaml` 裡的 `API_KEY` 與 `UI_PASSWORD` 後部署：
+設定已寫在 `k8s/configmap.yaml` 與 `k8s/secret.yaml`，clone 後可直接部署：
 
 ```bash
 kubectl apply -f k8s/namespace.yaml
@@ -90,6 +83,6 @@ kubectl apply -f k8s/ingress.yaml
 
 - 不建議把遠端 Ollama API 對全世界開放。
 - 建議只允許 CubeOS / K8s 節點 IP 存取 Ollama API。
-- `.env` 與 `k8s/secret.yaml` 不要上傳 git。
+- `.env` 仍維持本機覆寫用途；K8s 直接使用 repo 內的 `k8s/secret.yaml`。
 - GGUF 模型留在 5070 Ti 本機，不放進 K8s image。
 - 此系統輸出應作為醫療人員輔助，不能取代醫師最終判讀。

@@ -26,14 +26,14 @@ function Set-EnvDefault($Name, $Value) {
     }
 }
 
-Set-EnvDefault "API_KEY" "replace-with-your-api-key"
-Set-EnvDefault "UI_PASSWORD" "replace-with-your-ui-password"
+Set-EnvDefault "API_KEY" "hpcverygood-api-key"
+Set-EnvDefault "UI_PASSWORD" "hpcverygood"
 Set-EnvDefault "SESSION_HOURS" "8"
 Set-EnvDefault "COOKIE_SECURE" "false"
 Set-EnvDefault "KEEP_ALIVE" "30m"
-Set-EnvDefault "OLLAMA_BASE_URL" "http://replace-with-ollama-host:11434"
-Set-EnvDefault "OLLAMA_TRANS_MODEL" "replace-with-your-translator-model"
-Set-EnvDefault "OLLAMA_SUM_MODEL" "replace-with-your-summarizer-model"
+Set-EnvDefault "OLLAMA_BASE_URL" "http://140.128.103.191:11434"
+Set-EnvDefault "OLLAMA_TRANS_MODEL" "llama-3.2-3b-instruct-translator-baseline150:q8"
+Set-EnvDefault "OLLAMA_SUM_MODEL" "llama-3.2-3b-instruct-summarizer-clinical-v4:q5"
 
 Set-Location (Join-Path $root "proxy")
 & $venvPython -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload

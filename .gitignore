@@ -20,9 +20,6 @@ env/
 # Logs
 *.log
 
-# Local K8s secrets
-k8s/secret.yaml
-
 # OS / editor
 .DS_Store
 Thumbs.db

@@ -5,7 +5,7 @@
 推論流程：
 
 ```text
-Browser -> CubeOS/K8s Ingress -> cardiollm-proxy Pod -> http://replace-with-ollama-host:11434 -> remote Ollama GPU host
+Browser -> CubeOS/K8s Ingress -> cardiollm-proxy Pod -> http://140.128.103.191:11434 -> remote Ollama GPU host
 ```
 
 ## 部署前檢查
@@ -14,15 +14,9 @@ Browser -> CubeOS/K8s Ingress -> cardiollm-proxy Pod -> http://replace-with-olla
 2. 建議只允許 CubeOS 節點 IP 存取遠端 Ollama API。
 3. `configmap.yaml` 內的模型名稱必須已存在於 5070 Ti 的 Ollama。
 
-## 建立 Secret
+## Secret
 
-先複製範本：
-
-```bash
-cp k8s/secret.example.yaml k8s/secret.yaml
-```
-
-修改 `API_KEY` 與 `UI_PASSWORD` 後再部署。
+`secret.yaml` 已包含可直接部署的 `API_KEY` 與 `UI_PASSWORD`，網頁密碼為 `hpcverygood`。
 
 ## 部署順序
 

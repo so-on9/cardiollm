@@ -401,14 +401,14 @@ function selectedModelTag(kind) {
 async function init() {
     const defaultModels = {
         translator: [
-            "replace-with-your-translator-model:q4",
-            "replace-with-your-translator-model:q5",
-            "replace-with-your-translator-model:q8",
+            "llama-3.2-3b-instruct-translator-baseline150:q4",
+            "llama-3.2-3b-instruct-translator-baseline150:q5",
+            "llama-3.2-3b-instruct-translator-baseline150:q8",
         ],
         summarizer: [
-            "replace-with-your-summarizer-model:q4",
-            "replace-with-your-summarizer-model:q5",
-            "replace-with-your-summarizer-model:q8",
+            "llama-3.2-3b-instruct-summarizer-clinical-v4:q4",
+            "llama-3.2-3b-instruct-summarizer-clinical-v4:q5",
+            "llama-3.2-3b-instruct-summarizer-clinical-v4:q8",
         ],
     };
     const renderFallbackModels = () => {
@@ -426,9 +426,9 @@ async function init() {
         tSel.value = tBase;
         sSel.value = sBase;
         renderQuantButtons("translator", "q8");
-        renderQuantButtons("summarizer", "q8");
+        renderQuantButtons("summarizer", "q5");
         tSel.onchange = () => renderQuantButtons("translator", "q8");
-        sSel.onchange = () => renderQuantButtons("summarizer", "q8");
+        sSel.onchange = () => renderQuantButtons("summarizer", "q5");
     };
 
     try {
@@ -491,10 +491,10 @@ async function init() {
         sSel.value = sDefault.base || firstEnabledValue(sSel);
 
         renderQuantButtons("translator", tDefault.quant || "q8");
-        renderQuantButtons("summarizer", sDefault.quant || "q8");
+        renderQuantButtons("summarizer", sDefault.quant || "q5");
 
         tSel.onchange = () => renderQuantButtons("translator", "q8");
-        sSel.onchange = () => renderQuantButtons("summarizer", "q8");
+        sSel.onchange = () => renderQuantButtons("summarizer", "q5");
     } catch (e) {
         renderFallbackModels();
     }

@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: proxy
-          image: replace-with-your-registry/cardiollm-k8s:latest
+          image: cardiollm-k8s:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

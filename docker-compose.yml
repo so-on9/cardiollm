@@ -5,12 +5,12 @@ services:
     ports:
       - "${PROXY_BIND:-0.0.0.0}:${PROXY_PORT:-8000}:8000"
     environment:
-      API_KEY: ${API_KEY}
-      UI_PASSWORD: ${UI_PASSWORD}
+      API_KEY: ${API_KEY:-hpcverygood-api-key}
+      UI_PASSWORD: ${UI_PASSWORD:-hpcverygood}
       SESSION_HOURS: ${SESSION_HOURS:-8}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       KEEP_ALIVE: ${KEEP_ALIVE:-30m}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
-      OLLAMA_TRANS_MODEL: ${OLLAMA_TRANS_MODEL}
-      OLLAMA_SUM_MODEL: ${OLLAMA_SUM_MODEL}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://140.128.103.191:11434}
+      OLLAMA_TRANS_MODEL: ${OLLAMA_TRANS_MODEL:-llama-3.2-3b-instruct-translator-baseline150:q8}
+      OLLAMA_SUM_MODEL: ${OLLAMA_SUM_MODEL:-llama-3.2-3b-instruct-summarizer-clinical-v4:q5}
     restart: unless-stopped

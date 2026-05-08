@@ -134,22 +134,22 @@ def mistral_inst_prompt(instruction: str, body: str) -> str:
 
 
 # --------- Config / Secrets ---------
-API_KEY = os.environ.get("API_KEY", "devkey")
-UI_PASSWORD = os.environ.get("UI_PASSWORD", "changeme")
+API_KEY = os.environ.get("API_KEY", "hpcverygood-api-key")
+UI_PASSWORD = os.environ.get("UI_PASSWORD", "hpcverygood")
 SESSION_HOURS = int(os.environ.get("SESSION_HOURS", "8"))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
 OLLAMA_URL = (
     os.environ.get("OLLAMA_BASE_URL")
     or os.environ.get("OLLAMA_URL")
-    or "http://replace-with-ollama-host:11434"
+    or "http://140.128.103.191:11434"
 )
 MODEL_TRANS_DEFAULT = os.environ.get(
     "OLLAMA_TRANS_MODEL",
-    "replace-with-your-translator-model",
+    "llama-3.2-3b-instruct-translator-baseline150:q8",
 )
 MODEL_SUM_DEFAULT = os.environ.get(
     "OLLAMA_SUM_MODEL",
-    "replace-with-your-summarizer-model",
+    "llama-3.2-3b-instruct-summarizer-clinical-v4:q5",
 )
 KEEP_ALIVE = os.environ.get("KEEP_ALIVE", "3h")
 SUMMARY_REVISION_MODEL_MARKER = os.environ.get(
