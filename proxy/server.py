@@ -141,17 +141,21 @@ COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
 OLLAMA_URL = (
     os.environ.get("OLLAMA_BASE_URL")
     or os.environ.get("OLLAMA_URL")
-    or "http://140.128.103.191:11434"
+    or "http://replace-with-ollama-host:11434"
 )
 MODEL_TRANS_DEFAULT = os.environ.get(
     "OLLAMA_TRANS_MODEL",
-    "llama-3.2-3b-instruct-translator-baseline150:q8",
+    "replace-with-your-translator-model",
 )
 MODEL_SUM_DEFAULT = os.environ.get(
     "OLLAMA_SUM_MODEL",
-    "llama-3.2-3b-instruct-summarizer-clinical-v4:q8",
+    "replace-with-your-summarizer-model",
 )
 KEEP_ALIVE = os.environ.get("KEEP_ALIVE", "3h")
+SUMMARY_REVISION_MODEL_MARKER = os.environ.get(
+    "SUMMARY_REVISION_MODEL_MARKER",
+    "summarizer-clinical-v4",
+)
 FALLBACK_MODEL_NAMES = sorted(
     {
         MODEL_TRANS_DEFAULT,
@@ -522,11 +526,11 @@ def build_summary_revision_prompt(input_text: str, draft_text: str) -> str:
 
 
 def uses_summary_revision(model_name: str) -> bool:
-    return "llama-3.2-3b-instruct-summarizer-clinical-v4" in (model_name or "")
+    return SUMMARY_REVISION_MODEL_MARKER in (model_name or "")
 
 
 def build_summary_prompt(req: SummarizeReq, model_name: str = "") -> str:
-    if "llama-3.2-3b-instruct-summarizer-clinical-v4" in (model_name or ""):
+    if SUMMARY_REVISION_MODEL_MARKER in (model_name or ""):
         return build_llama_summary_prompt(req)
 
     style = (req.style or "").strip().lower()

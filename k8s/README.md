@@ -5,7 +5,7 @@
 推論流程：
 
 ```text
-Browser -> CubeOS/K8s Ingress -> cardiollm-proxy Pod -> http://140.128.103.191:11434 -> remote Ollama GPU host
+Browser -> CubeOS/K8s Ingress -> cardiollm-proxy Pod -> http://replace-with-ollama-host:11434 -> remote Ollama GPU host
 ```
 
 ## 部署前檢查

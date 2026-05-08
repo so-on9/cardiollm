@@ -401,14 +401,14 @@ function selectedModelTag(kind) {
 async function init() {
     const defaultModels = {
         translator: [
-            "llama-3.2-3b-instruct-translator-baseline150:q4",
-            "llama-3.2-3b-instruct-translator-baseline150:q5",
-            "llama-3.2-3b-instruct-translator-baseline150:q8",
+            "replace-with-your-translator-model:q4",
+            "replace-with-your-translator-model:q5",
+            "replace-with-your-translator-model:q8",
         ],
         summarizer: [
-            "llama-3.2-3b-instruct-summarizer-clinical-v4:q4",
-            "llama-3.2-3b-instruct-summarizer-clinical-v4:q5",
-            "llama-3.2-3b-instruct-summarizer-clinical-v4:q8",
+            "replace-with-your-summarizer-model:q4",
+            "replace-with-your-summarizer-model:q5",
+            "replace-with-your-summarizer-model:q8",
         ],
     };
     const renderFallbackModels = () => {

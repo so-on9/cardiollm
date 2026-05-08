@@ -8,7 +8,7 @@
 Browser
   -> CubeOS / K8s Ingress
   -> cardiollm-proxy Pod
-  -> http://140.128.103.191:11434
+  -> http://replace-with-ollama-host:11434
   -> 5070 Ti Ollama + GGUF
 ```
 
@@ -29,9 +29,9 @@ cardiollm-k8s/
 ## 預設遠端 Ollama
 
 ```env
-OLLAMA_BASE_URL=http://140.128.103.191:11434
-OLLAMA_TRANS_MODEL=llama-3.2-3b-instruct-translator-baseline150:q8
-OLLAMA_SUM_MODEL=llama-3.2-3b-instruct-summarizer-clinical-v4:q8
+OLLAMA_BASE_URL=http://replace-with-ollama-host:11434
+OLLAMA_TRANS_MODEL=replace-with-your-translator-model
+OLLAMA_SUM_MODEL=replace-with-your-summarizer-model
 ```
 
 這些模型必須已經在 5070 Ti 主機上的 Ollama 裡註冊完成。K8s 版本只傳送 API request，不會直接讀取 `gguf/`。
