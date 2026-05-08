@@ -275,8 +275,19 @@ async function api(path, body) {
         headers: { 'x-api-key': KEY, 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : null
     });
-    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
-    return await r.json();
+    const text = await r.text();
+    let data = null;
+    try {
+        data = text ? JSON.parse(text) : null;
+    } catch (e) {
+        data = null;
+    }
+    if (!r.ok) {
+        const detail = data?.detail || text || r.statusText;
+        throw new Error(detail);
+    }
+    if (!data) throw new Error(text || '伺服器回傳格式不是 JSON');
+    return data;
 }
 
 /* ---------------------------------------------------
@@ -388,9 +399,45 @@ function selectedModelTag(kind) {
 }
 
 async function init() {
+    const defaultModels = {
+        translator: [
+            "llama-3.2-3b-instruct-translator-baseline150:q4",
+            "llama-3.2-3b-instruct-translator-baseline150:q5",
+            "llama-3.2-3b-instruct-translator-baseline150:q8",
+        ],
+        summarizer: [
+            "llama-3.2-3b-instruct-summarizer-clinical-v4:q4",
+            "llama-3.2-3b-instruct-summarizer-clinical-v4:q5",
+            "llama-3.2-3b-instruct-summarizer-clinical-v4:q8",
+        ],
+    };
+    const renderFallbackModels = () => {
+        const tSel = document.getElementById('transModel');
+        const sSel = document.getElementById('sumModel');
+        const tBase = splitModelTag(defaultModels.translator[0]).base;
+        const sBase = splitModelTag(defaultModels.summarizer[0]).base;
+
+        tSel.innerHTML = '';
+        sSel.innerHTML = '';
+        modelPickerState.translator.catalog = buildCatalog(defaultModels.translator);
+        modelPickerState.summarizer.catalog = buildCatalog(defaultModels.summarizer);
+        addBaseModels(tSel, [tBase]);
+        addBaseModels(sSel, [sBase]);
+        tSel.value = tBase;
+        sSel.value = sBase;
+        renderQuantButtons("translator", "q8");
+        renderQuantButtons("summarizer", "q8");
+        tSel.onchange = () => renderQuantButtons("translator", "q8");
+        sSel.onchange = () => renderQuantButtons("summarizer", "q8");
+    };
+
     try {
         const data = await api('/models');
         const all = (data.names || []).sort();
+        if (!all.length) {
+            renderFallbackModels();
+            return;
+        }
         const tSel = document.getElementById('transModel');
         const sSel = document.getElementById('sumModel');
 
@@ -444,11 +491,13 @@ async function init() {
         sSel.value = sDefault.base || firstEnabledValue(sSel);
 
         renderQuantButtons("translator", tDefault.quant || "q8");
-        renderQuantButtons("summarizer", "q5");
+        renderQuantButtons("summarizer", sDefault.quant || "q8");
 
         tSel.onchange = () => renderQuantButtons("translator", "q8");
-        sSel.onchange = () => renderQuantButtons("summarizer", "q5");
-    } catch (e) { }
+        sSel.onchange = () => renderQuantButtons("summarizer", "q8");
+    } catch (e) {
+        renderFallbackModels();
+    }
 }
 
 /* ---------------------------------------------------

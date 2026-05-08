@@ -141,11 +141,29 @@ COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
 OLLAMA_URL = (
     os.environ.get("OLLAMA_BASE_URL")
     or os.environ.get("OLLAMA_URL")
-    or "http://localhost:11434"
+    or "http://140.128.103.191:11434"
 )
-MODEL_TRANS_DEFAULT = os.environ.get("OLLAMA_TRANS_MODEL", "cardio-translator")
-MODEL_SUM_DEFAULT = os.environ.get("OLLAMA_SUM_MODEL", "cardio-summarizer")
+MODEL_TRANS_DEFAULT = os.environ.get(
+    "OLLAMA_TRANS_MODEL",
+    "llama-3.2-3b-instruct-translator-baseline150:q8",
+)
+MODEL_SUM_DEFAULT = os.environ.get(
+    "OLLAMA_SUM_MODEL",
+    "llama-3.2-3b-instruct-summarizer-clinical-v4:q8",
+)
 KEEP_ALIVE = os.environ.get("KEEP_ALIVE", "3h")
+FALLBACK_MODEL_NAMES = sorted(
+    {
+        MODEL_TRANS_DEFAULT,
+        MODEL_TRANS_DEFAULT.rsplit(":", 1)[0] + ":q4",
+        MODEL_TRANS_DEFAULT.rsplit(":", 1)[0] + ":q5",
+        MODEL_TRANS_DEFAULT.rsplit(":", 1)[0] + ":q8",
+        MODEL_SUM_DEFAULT,
+        MODEL_SUM_DEFAULT.rsplit(":", 1)[0] + ":q4",
+        MODEL_SUM_DEFAULT.rsplit(":", 1)[0] + ":q5",
+        MODEL_SUM_DEFAULT.rsplit(":", 1)[0] + ":q8",
+    }
+)
 
 app = FastAPI(title="Cardio Dual-Model")
 BASE_DIR = Path(__file__).resolve().parent
@@ -552,10 +570,23 @@ def ollama_generate(
             "num_ctx": 4096,
         },
     }
-    r = requests.post(url, json=payload, timeout=600)
+    try:
+        r = requests.post(url, json=payload, timeout=600)
+    except requests.RequestException as exc:
+        raise HTTPException(
+            502,
+            f"Cannot connect to Ollama at {OLLAMA_URL}: {exc}",
+        ) from exc
     if r.status_code != 200:
-        raise HTTPException(r.status_code, r.text)
-    return r.json().get("response", "")
+        raise HTTPException(r.status_code, r.text or r.reason)
+    try:
+        data = r.json()
+    except ValueError as exc:
+        raise HTTPException(
+            502,
+            f"Ollama returned non-JSON response: {r.text[:300]}",
+        ) from exc
+    return data.get("response", "")
 
 
 def build_mistral_translate_prompt(english_text: str, tone: str = "Clinical") -> str:
@@ -634,9 +665,16 @@ def healthz():
 def models(request: Request, x_api_key: str = Header(default=None)):
     if not auth_ok(request, x_api_key):
         raise HTTPException(401, "unauthorized")
-    r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=10)
-    data = r.json()
-    names = sorted({m.get("name", "") for m in data.get("models", []) if m.get("name")})
+    fallback_names = FALLBACK_MODEL_NAMES
+    try:
+        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        names = sorted({m.get("name", "") for m in data.get("models", []) if m.get("name")})
+    except requests.RequestException:
+        names = fallback_names
+    if not names:
+        names = fallback_names
     return {
         "names": names,
         "defaults": {
