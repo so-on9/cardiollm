@@ -5,13 +5,13 @@
 推論流程：
 
 ```text
-Browser -> CubeOS/K8s Ingress -> cardiollm-proxy Pod -> http://140.128.103.191:11434 -> 5070 Ti Ollama
+Browser -> CubeOS/K8s Ingress -> cardiollm-proxy Pod -> http://replace-with-ollama-host:11434 -> remote Ollama GPU host
 ```
 
 ## 部署前檢查
 
 1. 5070 Ti 主機上的 Ollama 需要對 CubeOS 節點可連線。
-2. 建議只允許 CubeOS 節點 IP 存取 `140.128.103.191:11434`。
+2. 建議只允許 CubeOS 節點 IP 存取遠端 Ollama API。
 3. `configmap.yaml` 內的模型名稱必須已存在於 5070 Ti 的 Ollama。
 
 ## 建立 Secret

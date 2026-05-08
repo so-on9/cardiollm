@@ -8,7 +8,7 @@
 Browser
   -> CubeOS / K8s Ingress
   -> cardiollm-proxy Pod
-  -> http://140.128.103.191:11434
+  -> http://replace-with-ollama-host:11434
   -> 5070 Ti Ollama + GGUF
 ```
 
@@ -29,9 +29,9 @@ cardiollm-k8s/
 ## 預設遠端 Ollama
 
 ```env
-OLLAMA_BASE_URL=http://140.128.103.191:11434
-OLLAMA_TRANS_MODEL=llama-3.2-3b-instruct-translator-baseline150:q8
-OLLAMA_SUM_MODEL=llama-3.2-3b-instruct-summarizer-clinical-v4:q8
+OLLAMA_BASE_URL=http://replace-with-ollama-host:11434
+OLLAMA_TRANS_MODEL=replace-with-your-translator-model:q8
+OLLAMA_SUM_MODEL=replace-with-your-summarizer-model:q8
 ```
 
 這些模型必須已經在 5070 Ti 主機上的 Ollama 裡註冊完成。K8s 版本只傳送 API request，不會直接讀取 `gguf/`。
@@ -83,12 +83,12 @@ kubectl apply -f k8s/ingress.yaml
 ## Health Check
 
 - `/health`：只確認 proxy 存活，適合 liveness probe。
-- `/api/health/ollama`：確認 proxy 能連到 `140.128.103.191:11434`，適合 readiness probe。
+- `/api/health/ollama`：確認 proxy 能連到遠端 Ollama，適合 readiness probe。
 - `/healthz`：相容舊版 health check，目前等同遠端 Ollama 檢查。
 
 ## 安全注意事項
 
-- 不建議把 `140.128.103.191:11434` 對全世界開放。
+- 不建議把遠端 Ollama API 對全世界開放。
 - 建議只允許 CubeOS / K8s 節點 IP 存取 Ollama API。
 - `.env` 與 `k8s/secret.yaml` 不要上傳 git。
 - GGUF 模型留在 5070 Ti 本機，不放進 K8s image。
