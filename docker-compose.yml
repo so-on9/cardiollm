@@ -1,67 +1,16 @@
 services:
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    ports:
-      - "${OLLAMA_BIND:-127.0.0.1}:${OLLAMA_PORT:-11434}:11434"
-    gpus: all
-    volumes:
-      - ${HOME}/cardiollm/gguf:/models
-      - ${HOME}/cardiollm/ollama:/modelfile
-      - ${HOME}/cardiollm/ollama_store:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
-    command: ["serve"]
-    restart: unless-stopped
-
   proxy:
-    image: python:3.11-slim
-    container_name: cardio-proxy
-    depends_on:
-      ollama:
-        condition: service_healthy
-    # 注意：這裡不設定 ports，只用 expose 開放給內網的 Caddy 連線
-    expose:
-      - "8000"
+    build: .
+    container_name: cardio-proxy-k8s-dev
+    ports:
+      - "${PROXY_BIND:-0.0.0.0}:${PROXY_PORT:-8000}:8000"
     environment:
       API_KEY: ${API_KEY}
       UI_PASSWORD: ${UI_PASSWORD}
-      SESSION_HOURS: ${SESSION_HOURS}
-      COOKIE_SECURE: "true"  # HTTPS 環境必須為 true
-      KEEP_ALIVE: ${KEEP_ALIVE}
-      OLLAMA_URL: "http://ollama:11434"
+      SESSION_HOURS: ${SESSION_HOURS:-8}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      KEEP_ALIVE: ${KEEP_ALIVE:-30m}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
       OLLAMA_TRANS_MODEL: ${OLLAMA_TRANS_MODEL}
       OLLAMA_SUM_MODEL: ${OLLAMA_SUM_MODEL}
-    volumes:
-      # 掛載整個資料夾，確保圖片 server.py 都能讀到
-      - ./proxy:/app
-      - ./requirements.txt:/app/requirements.txt:ro
-    working_dir: /app
-    command: >
-            bash -lc "pip install --no-cache-dir -r /app/requirements.txt &&
-            uvicorn server:app --host 0.0.0.0 --port 8000"
     restart: unless-stopped
-
-  # 新增 Caddy 服務：負責自動申請 HTTPS 並轉發流量
-  caddy:
-    image: caddy:alpine
-    container_name: cardio-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ${HOME}/cardiollm/Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - proxy
-
-# 用來讓 Caddy 儲存憑證，避免重開機後重新申請導致次數過多被鎖
-volumes:
-  caddy_data:
-  caddy_config:

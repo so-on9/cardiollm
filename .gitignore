@@ -13,11 +13,15 @@ env/
 .env
 .env.*
 !.env.example
+!.env.k8s.example
 *.key
 *.pem
 
 # Logs
 *.log
+
+# Local K8s secrets
+k8s/secret.yaml
 
 # OS / editor
 .DS_Store

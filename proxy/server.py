@@ -138,7 +138,11 @@ API_KEY = os.environ.get("API_KEY", "devkey")
 UI_PASSWORD = os.environ.get("UI_PASSWORD", "changeme")
 SESSION_HOURS = int(os.environ.get("SESSION_HOURS", "8"))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = (
+    os.environ.get("OLLAMA_BASE_URL")
+    or os.environ.get("OLLAMA_URL")
+    or "http://localhost:11434"
+)
 MODEL_TRANS_DEFAULT = os.environ.get("OLLAMA_TRANS_MODEL", "cardio-translator")
 MODEL_SUM_DEFAULT = os.environ.get("OLLAMA_SUM_MODEL", "cardio-summarizer")
 KEEP_ALIVE = os.environ.get("KEEP_ALIVE", "3h")
@@ -602,8 +606,13 @@ def build_mistral_summary_prompt(chinese_text: str, style: str = "Clinical") -> 
 # -------------------------------------------------------------------------
 
 
-@app.get("/healthz")
-def healthz():
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
+@app.get("/api/health/ollama")
+def ollama_health():
     ok = False
     try:
         ok = requests.get(f"{OLLAMA_URL}/api/tags", timeout=3).status_code == 200
@@ -614,6 +623,11 @@ def healthz():
         "translator_default": MODEL_TRANS_DEFAULT,
         "summarizer_default": MODEL_SUM_DEFAULT,
     }
+
+
+@app.get("/healthz")
+def healthz():
+    return ollama_health()
 
 
 @app.get("/models")

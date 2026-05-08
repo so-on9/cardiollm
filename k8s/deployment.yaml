@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cardiollm-proxy
+  namespace: cardiollm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cardiollm-proxy
+  template:
+    metadata:
+      labels:
+        app: cardiollm-proxy
+    spec:
+      containers:
+        - name: proxy
+          image: replace-with-your-registry/cardiollm-k8s:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: cardiollm-config
+            - secretRef:
+                name: cardiollm-secret
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/health/ollama
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

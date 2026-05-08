@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cardiollm-config
+  namespace: cardiollm
+data:
+  SESSION_HOURS: "8"
+  COOKIE_SECURE: "true"
+  KEEP_ALIVE: "30m"
+  OLLAMA_BASE_URL: "http://140.128.103.191:11434"
+  OLLAMA_TRANS_MODEL: "llama-3.2-3b-instruct-translator-baseline150:q8"
+  OLLAMA_SUM_MODEL: "llama-3.2-3b-instruct-summarizer-clinical-v4:q8"
