@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <title>台中榮總心臟科翻譯/摘要LLM</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/ui.css?v=20260429r">
+  <link rel="stylesheet" href="/static/ui.css?v=20260524progressfx9">
 </head>
 
 <body>
@@ -128,7 +128,22 @@
         </div>
       </div>
 
-      <div class="results-grid">
+      <div id="progressPanel" class="inference-progress" hidden>
+        <div class="progress-inner">
+          <div class="progress-meta">
+            <div>
+              <div class="progress-title">推論進度</div>
+              <div id="progressStatus" class="progress-status" aria-live="polite"><span id="progressStatusText" class="progress-status-text">準備推論</span></div>
+            </div>
+            <div id="progressPercent" class="progress-percent">0%</div>
+          </div>
+          <div class="progress-track" aria-label="推論進度">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="resultsGrid" class="results-grid">
         <div class="glass-panel">
           <div class="panel-title panel-title-muted">翻譯結果</div>
           <div id="trans" class="output-content"></div>
@@ -143,7 +158,7 @@
     </main>
   </div>
 
-  <script src="/static/ui.js?v=20260429r"></script>
+  <script src="/static/ui.js?v=20260524progressfx9"></script>
 </body>
 
 </html>

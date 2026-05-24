@@ -554,6 +554,41 @@ def ollama_generate(
     return r.json().get("response", "")
 
 
+def json_event(event: str, **data) -> str:
+    payload = {"event": event, **data}
+    return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
+def ollama_stream_generate(
+    model: str, prompt: str, max_new_tokens: int, temperature: float, top_p: float
+):
+    url = f"{OLLAMA_URL}/api/generate"
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": True,
+        "keep_alive": KEEP_ALIVE,
+        "options": {
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "num_predict": int(max_new_tokens),
+            "repeat_penalty": 1.05,
+            "num_ctx": 4096,
+        },
+    }
+    r = requests.post(url, json=payload, stream=True, timeout=600)
+    if r.status_code != 200:
+        raise RuntimeError(r.text)
+    for line in r.iter_lines():
+        if not line:
+            continue
+        try:
+            chunk = json.loads(line.decode("utf-8"))
+        except Exception:
+            continue
+        yield chunk
+
+
 def build_mistral_translate_prompt(english_text: str, tone: str = "Clinical") -> str:
     tone = tone.strip().lower()
     base = (
@@ -844,6 +879,157 @@ def pipeline(req: PipelineReq, request: Request, x_api_key: str = Header(default
         "warn_summary_missing": sorted(trans_set - sum_set),
         "warn_summary_extra": sorted(sum_set - trans_set),
     }
+
+
+@app.post("/pipeline_stream")
+def pipeline_stream(req: PipelineReq, request: Request, x_api_key: str = Header(default=None)):
+    if not auth_ok(request, x_api_key):
+        raise HTTPException(401, "unauthorized")
+
+    def event_gen():
+        try:
+            t_model = req.translator_model or MODEL_TRANS_DEFAULT
+            s_model = req.summarizer_model or MODEL_SUM_DEFAULT
+            mistral_trans = "mistral" in t_model.lower()
+            mistral_sum = "mistral" in s_model.lower()
+
+            if mistral_trans:
+                t_prompt = build_mistral_translate_prompt(req.source, req.style)
+            else:
+                t_prompt = build_translate_prompt(
+                    TranslateReq(
+                        source=req.source,
+                        target_lang=req.target_lang,
+                        style=req.style,
+                        keep_formatting=req.keep_formatting,
+                        glossary=req.glossary,
+                        max_new_tokens=req.max_new_tokens_translate,
+                        temperature=req.temperature_translate,
+                        top_p=req.top_p,
+                    ),
+                    t_model,
+                )
+
+            yield json_event(
+                "phase_start",
+                phase="translate",
+                label="翻譯模型推論中",
+                progress=8,
+            )
+            raw_t = ""
+            for chunk in ollama_stream_generate(
+                t_model,
+                t_prompt,
+                req.max_new_tokens_translate,
+                req.temperature_translate,
+                req.top_p,
+            ):
+                token = chunk.get("response", "")
+                done = chunk.get("done", False)
+                if token:
+                    raw_t += token
+                    yield json_event("token", phase="translate", delta=token)
+                if done:
+                    break
+
+            t = untag_translated_lines(raw_t)
+            t = apply_term_map(t)
+            t = strip_model_header(t)
+            src_set = extract_nums_units(req.source)
+            trans_set = extract_nums_units(t)
+            warn_translation_missing = sorted(src_set - trans_set)
+            warn_translation_extra = sorted(trans_set - src_set)
+            yield json_event(
+                "phase_done",
+                phase="translate",
+                text=t,
+                progress=52,
+                warn_missing=warn_translation_missing,
+                warn_extra=warn_translation_extra,
+            )
+
+            if mistral_sum:
+                s_prompt = build_mistral_summary_prompt(t, req.style)
+            else:
+                s_prompt = build_summary_prompt(
+                    SummarizeReq(
+                        source=t,
+                        target_lang=req.target_lang,
+                        style=req.style,
+                        keep_formatting=req.keep_formatting,
+                        max_new_tokens=req.max_new_tokens_summary,
+                        temperature=req.temperature_summary,
+                        top_p=req.top_p,
+                    ),
+                    s_model,
+                )
+
+            yield json_event(
+                "phase_start",
+                phase="summary",
+                label="摘要模型推論中",
+                progress=58,
+            )
+            s = ""
+            for chunk in ollama_stream_generate(
+                s_model,
+                s_prompt,
+                req.max_new_tokens_summary,
+                req.temperature_summary,
+                req.top_p,
+            ):
+                token = chunk.get("response", "")
+                done = chunk.get("done", False)
+                if token:
+                    s += token
+                    yield json_event("token", phase="summary", delta=token)
+                if done:
+                    break
+
+            s = s.strip()
+            if uses_summary_revision(s_model) and s:
+                yield json_event(
+                    "status",
+                    phase="summary",
+                    label="摘要校正與來源一致性檢查",
+                    progress=94,
+                )
+                revision_prompt = build_summary_revision_prompt(t, s)
+                revised_summary = ollama_generate(
+                    s_model,
+                    revision_prompt,
+                    req.max_new_tokens_summary,
+                    0.1,
+                    req.top_p,
+                ).strip()
+                if revised_summary:
+                    s = revised_summary
+                s = sanitize_summary_against_source(t, s)
+            s = dedup_summary_lines(s)
+
+            sum_set = extract_nums_units(s)
+            warn_summary_missing = sorted(trans_set - sum_set)
+            warn_summary_extra = sorted(sum_set - trans_set)
+            yield json_event(
+                "phase_done",
+                phase="summary",
+                text=s,
+                progress=98,
+                warn_missing=warn_summary_missing,
+                warn_extra=warn_summary_extra,
+            )
+            yield json_event(
+                "done",
+                progress=100,
+                warn_translation_missing=warn_translation_missing,
+                warn_translation_extra=warn_translation_extra,
+                warn_summary_missing=warn_summary_missing,
+                warn_summary_extra=warn_summary_extra,
+            )
+        except Exception as e:
+            yield json_event("error", message=str(e))
+
+    return StreamingResponse(event_gen(), media_type="text/plain; charset=utf-8")
 
 
 @app.post("/login")

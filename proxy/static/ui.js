@@ -279,6 +279,52 @@ async function api(path, body) {
     return await r.json();
 }
 
+async function apiStream(path, body, onEvent) {
+    const r = await fetch(path, {
+        method: 'POST',
+        headers: { 'x-api-key': KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    if (!r.ok) {
+        let message = r.statusText;
+        try {
+            const data = await r.json();
+            message = data.detail || message;
+        } catch (e) {
+            message = await r.text() || message;
+        }
+        throw new Error(message);
+    }
+    if (!r.body) throw new Error('此瀏覽器不支援串流回應');
+
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+            const raw = line.trim();
+            if (!raw) continue;
+            const event = JSON.parse(raw);
+            onEvent(event);
+            if (event.event === 'error') throw new Error(event.message || 'stream error');
+        }
+    }
+
+    buffer += decoder.decode();
+    const raw = buffer.trim();
+    if (raw) {
+        const event = JSON.parse(raw);
+        onEvent(event);
+        if (event.event === 'error') throw new Error(event.message || 'stream error');
+    }
+}
+
 /* ---------------------------------------------------
  * 5. 初始化模型清單
  * --------------------------------------------------*/
@@ -523,6 +569,225 @@ function typeShow(el, text, done) {
     loop();
 }
 
+let progressTimer = null;
+let progressValue = 0;
+let progressStatusText = "準備推論";
+let progressStatusUpdatedAt = 0;
+let progressStatusAnimating = false;
+let progressStatusPending = "";
+const PROGRESS_STATUS_COOLDOWN_MS = 900;
+
+function progressStatusFor(value) {
+    if (value < 14) return "送出報告與模型設定";
+    if (value < 42) return "翻譯模型推論中";
+    if (value < 72) return "摘要模型推論中";
+    if (value < 99) return "整理輸出與一致性檢查";
+    return "完成，正在顯示結果";
+}
+
+function progressStatusEl(statusEl) {
+    if (!statusEl) return null;
+    statusEl.childNodes.forEach((node) => {
+        if (node.nodeType === Node.TEXT_NODE) node.remove();
+    });
+    let textEl = statusEl.querySelector('#progressStatusText');
+    if (!textEl) {
+        statusEl.innerHTML = '';
+        textEl = document.createElement('span');
+        textEl.id = 'progressStatusText';
+        textEl.className = 'progress-status-text';
+        statusEl.appendChild(textEl);
+    }
+    return textEl;
+}
+
+function setProgressStatusText(statusEl, text, immediate = false) {
+    const textEl = progressStatusEl(statusEl);
+    if (!textEl || !text || textEl.textContent === text) return;
+
+    if (immediate) {
+        progressStatusAnimating = false;
+        progressStatusPending = '';
+        textEl.classList.remove('is-leaving', 'is-entering');
+        textEl.textContent = text;
+        return;
+    }
+
+    if (progressStatusAnimating) {
+        progressStatusPending = text;
+        return;
+    }
+
+    progressStatusAnimating = true;
+    textEl.classList.remove('is-entering');
+    textEl.classList.add('is-leaving');
+
+    window.setTimeout(() => {
+        textEl.textContent = text;
+        textEl.classList.remove('is-leaving');
+        textEl.classList.add('is-entering');
+
+        requestAnimationFrame(() => {
+            textEl.classList.remove('is-entering');
+        });
+
+        window.setTimeout(() => {
+            progressStatusAnimating = false;
+            const pending = progressStatusPending;
+            progressStatusPending = '';
+            if (pending && pending !== textEl.textContent) {
+                setProgressStatusText(statusEl, pending);
+            }
+        }, 280);
+    }, 140);
+}
+
+function setProgress(value, status, forceStatus = false) {
+    const fill = document.getElementById('progressFill');
+    const percent = document.getElementById('progressPercent');
+    const statusEl = document.getElementById('progressStatus');
+    const next = Math.max(0, Math.min(100, Math.round(value)));
+    const nextStatus = status || progressStatusFor(next);
+    const now = Date.now();
+    if (fill) fill.style.width = `${next}%`;
+    if (percent) percent.textContent = `${next}%`;
+    if (
+        statusEl
+        && nextStatus
+        && (forceStatus || !progressStatusText || now - progressStatusUpdatedAt >= PROGRESS_STATUS_COOLDOWN_MS)
+    ) {
+        progressStatusText = nextStatus;
+        progressStatusUpdatedAt = now;
+        setProgressStatusText(statusEl, nextStatus, forceStatus);
+    }
+}
+
+function stopProgressTimer() {
+    if (!progressTimer) return;
+    clearInterval(progressTimer);
+    progressTimer = null;
+}
+
+function openProgressPanel(panel) {
+    if (!panel) return;
+    panel.hidden = false;
+    panel.classList.remove('is-closing');
+    requestAnimationFrame(() => {
+        panel.classList.add('is-open');
+    });
+}
+
+function closeProgressPanel(panel, done) {
+    if (!panel) {
+        if (done) done();
+        return;
+    }
+    panel.classList.remove('is-open');
+    panel.classList.add('is-closing');
+    window.setTimeout(() => {
+        panel.hidden = true;
+        panel.classList.remove('is-closing');
+        if (done) done();
+    }, 480);
+}
+
+function centerProgressPanel(panel) {
+    if (!panel || !panel.scrollIntoView) return;
+    window.setTimeout(() => {
+        panel.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }, 180);
+}
+
+function startProgress() {
+    const panel = document.getElementById('progressPanel');
+    const resultsGrid = document.getElementById('resultsGrid');
+    stopProgressTimer();
+    progressValue = 3;
+    progressStatusText = "";
+    progressStatusUpdatedAt = 0;
+    progressStatusAnimating = false;
+    progressStatusPending = "";
+    if (panel) {
+        panel.classList.remove('is-error');
+        openProgressPanel(panel);
+        centerProgressPanel(panel);
+    }
+    if (resultsGrid) resultsGrid.classList.add('is-waiting');
+    setProgress(progressValue, "準備推論", true);
+
+    progressTimer = setInterval(() => {
+        const ceiling = 92;
+        if (progressValue >= ceiling) {
+            setProgress(progressValue);
+            return;
+        }
+        const gap = ceiling - progressValue;
+        const pace = progressValue < 35 ? 3.2 : progressValue < 70 ? 1.8 : 0.75;
+        const nextValue = progressValue + Math.max(0.2, Math.min(pace, gap * 0.18));
+        progressValue = Math.max(progressValue, Math.min(ceiling, nextValue));
+        setProgress(progressValue);
+    }, 520);
+}
+
+function finishProgress(done) {
+    const panel = document.getElementById('progressPanel');
+    const resultsGrid = document.getElementById('resultsGrid');
+    stopProgressTimer();
+    progressValue = 100;
+    setProgress(100, "完成，正在顯示結果", true);
+    setTimeout(() => {
+        if (resultsGrid) resultsGrid.classList.remove('is-waiting');
+        closeProgressPanel(panel, done);
+    }, 300);
+}
+
+function failProgress(message) {
+    const panel = document.getElementById('progressPanel');
+    const resultsGrid = document.getElementById('resultsGrid');
+    stopProgressTimer();
+    if (panel) {
+        panel.classList.add('is-error');
+        openProgressPanel(panel);
+    }
+    if (resultsGrid) resultsGrid.classList.remove('is-waiting');
+    setProgress(100, message || "推論失敗", true);
+}
+
+function resetProgress() {
+    const panel = document.getElementById('progressPanel');
+    const resultsGrid = document.getElementById('resultsGrid');
+    stopProgressTimer();
+    progressValue = 0;
+    progressStatusText = "";
+    progressStatusUpdatedAt = 0;
+    progressStatusAnimating = false;
+    progressStatusPending = "";
+    setProgress(0, "準備推論", true);
+    if (panel) {
+        panel.hidden = true;
+        panel.classList.remove('is-error', 'is-open', 'is-closing');
+    }
+    if (resultsGrid) resultsGrid.classList.remove('is-waiting');
+}
+
+function showStreamingResults() {
+    const resultsGrid = document.getElementById('resultsGrid');
+    if (resultsGrid) resultsGrid.classList.remove('is-waiting');
+}
+
+function setStreamingPhaseProgress(progress, label) {
+    progressValue = Math.max(progressValue, progress || 0);
+    if (progressValue >= 92) stopProgressTimer();
+    setProgress(progressValue, label, true);
+}
+
+function tickStreamingProgress(phase) {
+    const ceiling = phase === 'translate' ? 50 : 93;
+    const bump = phase === 'translate' ? 0.45 : 0.32;
+    progressValue = Math.min(ceiling, Math.max(progressValue, phase === 'translate' ? 8 : 58) + bump);
+    setProgress(progressValue);
+}
+
 /* ---------------------------------------------------
  * 8. Pipeline 按鈕
  * --------------------------------------------------*/
@@ -530,14 +795,25 @@ document.getElementById('btn-pipeline').onclick = async () => {
     const src = document.getElementById('src').value.trim();
     if (!src) return alert('請輸入報告內容');
 
+    const btn = document.getElementById('btn-pipeline');
     const elT = document.getElementById('trans');
     const elS = document.getElementById('sum');
-    elT.textContent = '分析中...'; elS.textContent = '等待中...';
-    document.getElementById('warnT').textContent = '';
-    document.getElementById('warnS').textContent = '';
+    const warnT = document.getElementById('warnT');
+    const warnS = document.getElementById('warnS');
+    elT.textContent = '';
+    elS.textContent = '';
+    warnT.textContent = '';
+    warnS.textContent = '';
+    document.querySelectorAll('.callout-group').forEach(g => g.classList.remove('active'));
+    btn.disabled = true;
+    btn.textContent = '推論中';
+    startProgress();
+
+    let translation = '';
+    let summary = '';
 
     try {
-        const res = await api('/pipeline', {
+        await apiStream('/pipeline_stream', {
             source: src,
             translator_model: selectedModelTag("translator"),
             summarizer_model: selectedModelTag("summarizer"),
@@ -548,30 +824,86 @@ document.getElementById('btn-pipeline').onclick = async () => {
             temperature_summary: +document.getElementById('tempS').value,
             top_p: +document.getElementById('topP').value,
             glossary: []
+        }, (event) => {
+            if (event.event === 'phase_start') {
+                setStreamingPhaseProgress(event.progress || 0, event.label);
+                if (event.phase === 'translate') {
+                    translation = '';
+                    elT.textContent = '';
+                }
+                if (event.phase === 'summary') {
+                    summary = '';
+                    elS.textContent = '';
+                }
+                return;
+            }
+
+            if (event.event === 'token') {
+                showStreamingResults();
+                tickStreamingProgress(event.phase);
+                if (event.phase === 'translate') {
+                    translation += event.delta || '';
+                    elT.textContent = translation;
+                }
+                if (event.phase === 'summary') {
+                    summary += event.delta || '';
+                    elS.textContent = summary;
+                }
+                highlight(`${translation}
+${summary}`);
+                return;
+            }
+
+            if (event.event === 'status') {
+                setStreamingPhaseProgress(event.progress || progressValue, event.label);
+                return;
+            }
+
+            if (event.event === 'phase_done') {
+                showStreamingResults();
+                setStreamingPhaseProgress(event.progress || progressValue, event.label);
+                if (event.phase === 'translate') {
+                    translation = event.text || translation;
+                    elT.textContent = translation;
+                    if (event.warn_missing?.length) warnT.textContent = '⚠️ 缺漏: ' + event.warn_missing;
+                }
+                if (event.phase === 'summary') {
+                    summary = event.text || summary;
+                    elS.textContent = summary;
+                    if (event.warn_missing?.length) warnS.textContent = '⚠️ 缺漏: ' + event.warn_missing;
+                }
+                highlight(`${translation}
+${summary}`);
+                return;
+            }
+
+            if (event.event === 'done') {
+                if (event.warn_translation_missing?.length)
+                    warnT.textContent = '⚠️ 缺漏: ' + event.warn_translation_missing;
+                if (event.warn_summary_missing?.length)
+                    warnS.textContent = '⚠️ 缺漏: ' + event.warn_summary_missing;
+            }
         });
 
-        const fullText = (res.translation + "\n" + res.summary);
-
-        typeShow(elT, res.translation, () => {
-            typeShow(elS, res.summary, () => {
-                highlight(fullText);
-            });
+        finishProgress(() => {
+            highlight(`${translation}
+${summary}`);
+            btn.disabled = false;
+            btn.textContent = '開始分析';
         });
-
-        if (res.warn_translation_missing?.length)
-            document.getElementById('warnT').textContent = '⚠️ 缺漏: ' + res.warn_translation_missing;
-        if (res.warn_summary_missing?.length)
-            document.getElementById('warnS').textContent = '⚠️ 缺漏: ' + res.warn_summary_missing;
-
     } catch (e) {
+        failProgress("串流推論失敗，請檢查模型服務");
         elT.textContent = '錯誤: ' + e.message;
+        elS.textContent = '';
+        btn.disabled = false;
+        btn.textContent = '開始分析';
     }
 };
-
 /* ---------------------------------------------------
  * 9. 其他按鈕
  * --------------------------------------------------*/
 document.getElementById('btn-clear').onclick = () => {
+    resetProgress();
     document.getElementById('src').value = '';
     document.getElementById('trans').textContent = '';
     document.getElementById('sum').textContent = '';
