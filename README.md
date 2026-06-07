@@ -84,8 +84,8 @@ COOKIE_SECURE=true
 KEEP_ALIVE=30m
 OLLAMA_BIND=127.0.0.1
 OLLAMA_PORT=11434
-OLLAMA_TRANS_MODEL=replace-with-your-translator-model:q8
-OLLAMA_SUM_MODEL=replace-with-your-summarizer-model:q5
+OLLAMA_TRANS_MODEL=llama-3.2-3b-instruct-translator-baseline150:q8
+OLLAMA_SUM_MODEL=llama-3.2-3b-instruct-summarizer-complete-clinical-v5:q8
 ```
 
 注意：`.env` 內含密碼與金鑰，不應上傳到 git。
@@ -101,12 +101,12 @@ OLLAMA_SUM_MODEL=replace-with-your-summarizer-model:q5
 GGUF 檔案命名範例：
 
 ```text
-your-translator-model-q4.gguf
-your-translator-model-q5.gguf
-your-translator-model-q8.gguf
-your-summarizer-model-q4.gguf
-your-summarizer-model-q5.gguf
-your-summarizer-model-q8.gguf
+llama32-3b-translator-baseline150-q4.gguf
+llama32-3b-translator-baseline150-q5.gguf
+llama32-3b-translator-baseline150-q8.gguf
+llama32-3b-summary-complete-clinical-v5-q4.gguf
+llama32-3b-summary-complete-clinical-v5-q5.gguf
+llama32-3b-summary-complete-clinical-v5-q8.gguf
 ```
 
 GGUF 通常很大，不建議直接放進 git。若要移植到新機器，請另外複製 `gguf/` 或從 Hugging Face 下載。
@@ -123,8 +123,8 @@ Modelfile 放在：
 
 ```bash
 docker exec -it ollama bash
-ollama create your-translator-model:q8 -f /modelfile/Your-Translator-Q8.Modelfile
-ollama create your-summarizer-model:q5 -f /modelfile/Your-Summarizer-Q5.Modelfile
+ollama create llama-3.2-3b-instruct-translator-baseline150:q8 -f /modelfile/Llama32-Translator-Baseline150-Q8.Modelfile
+ollama create llama-3.2-3b-instruct-summarizer-complete-clinical-v5:q8 -f /modelfile/Llama32-Summary-CompleteClinicalV5-Q8.Modelfile
 ollama list
 ```
 
@@ -235,13 +235,16 @@ docker compose up -d --force-recreate --no-deps ollama
 - 下方水平按鈕選 `Q4` / `Q5` / `Q8`
 - 若某模型沒有對應量化版本，該按鈕會反灰
 - 送出時前端會自動組回完整 Ollama tag，例如：
-  - `your-translator-model:q8`
-  - `your-summarizer-model:q5`
+  - `llama-3.2-3b-instruct-translator-baseline150:q8`
+  - `llama-3.2-3b-instruct-summarizer-complete-clinical-v5:q8`
 
 設定範例：
 
-- 翻譯模型：`your-translator-model:q8`
-- 摘要模型：`your-summarizer-model:q5`
+- 翻譯模型：`llama-3.2-3b-instruct-translator-baseline150:q8`
+- 摘要模型：`llama-3.2-3b-instruct-summarizer-complete-clinical-v5:q8`
+- 前端顯示名稱：新版翻譯與新版摘要都顯示為 `LLaMA 3.2 Instruct`
+- 預設生成參數：翻譯 `Max Tokens=2048, Temp=0.1`；摘要 `Max Tokens=2048, Temp=0.0`；`Top P=0.95`
+- 摘要 complete-clinical-v5 走接近訓練/評估分布的 prompt；proxy 只移除模型可能輸出的「原文資訊核對 / 資訊對照」附錄，並清掉同一段落內完全重複的行。缺漏或多出的數值由前端 warning 顯示，不要求模型自己輸出警告段落。
 
 ## 安全注意事項
 

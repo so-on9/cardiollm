@@ -27,6 +27,8 @@ services:
     # 注意：這裡不設定 ports，只用 expose 開放給內網的 Caddy 連線
     expose:
       - "8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       API_KEY: ${API_KEY}
       UI_PASSWORD: ${UI_PASSWORD}
@@ -36,6 +38,12 @@ services:
       OLLAMA_URL: "http://ollama:11434"
       OLLAMA_TRANS_MODEL: ${OLLAMA_TRANS_MODEL}
       OLLAMA_SUM_MODEL: ${OLLAMA_SUM_MODEL}
+      IMAGE_BACKEND: ${IMAGE_BACKEND:-mock}
+      IMAGE_API_URL: ${IMAGE_API_URL:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-Stable Diffusion 1.5}
+      COMFYUI_CHECKPOINT: ${COMFYUI_CHECKPOINT:-v1-5-pruned-emaonly-fp16.safetensors}
+      COMFYUI_IMAGE_SIZE: ${COMFYUI_IMAGE_SIZE:-512}
+      COMFYUI_DENOISE: ${COMFYUI_DENOISE:-0.45}
     volumes:
       # 掛載整個資料夾，確保圖片 server.py 都能讀到
       - ./proxy:/app

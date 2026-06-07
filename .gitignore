@@ -49,3 +49,6 @@ ollama_store/
 
 # Local handoff / writing notes
 *PAPER_HANDOFF.md
+
+# Runtime generated images
+proxy/static/generated/

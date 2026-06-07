@@ -22,6 +22,7 @@ const PAD_RATIO = 0.22;
 const VB_H = +(VB_H_BASE * (1 + PAD_RATIO)).toFixed(3);
 
 const ANCHOR_KEY = "heart_anchors_v2";
+const VIZ_MODE_KEY = "cardiollm_viz_mode";
 
 /** 預設座標（只是初值，之後你用校準模式點黑字會覆蓋） */
 const DEFAULT_ANCHORS = {
@@ -49,6 +50,10 @@ function saveAnchors(a) {
 }
 
 let anchors = loadAnchors();
+let vizMode = localStorage.getItem(VIZ_MODE_KEY) || "anatomy";
+let latestStructuredData = null;
+let latestSummaryText = "";
+let latestSourceText = "";
 
 function applyAnchor(id) {
     const g = document.getElementById("label-" + id);
@@ -65,12 +70,46 @@ let calibOn = false;
 function setCalibUI() {
     const stack = document.getElementById("heartStack");
     const btn = document.getElementById("btnCalib");
+    if (!stack || !btn) return;
     stack.classList.toggle("calib-on", calibOn);
     btn.textContent = calibOn ? "校準模式：開" : "校準模式：關";
 }
 
+function setVizMode(mode) {
+    vizMode = mode === "ai" ? "ai" : "anatomy";
+    localStorage.setItem(VIZ_MODE_KEY, vizMode);
+
+    const container = document.querySelector(".viz-container");
+    const heartStack = document.getElementById("heartStack");
+    const aiPreview = document.getElementById("aiPreview");
+
+    if (container) container.dataset.vizMode = vizMode;
+    if (heartStack) heartStack.hidden = vizMode !== "anatomy";
+    if (aiPreview) aiPreview.hidden = vizMode !== "ai";
+
+    document.querySelectorAll("[data-viz-mode-option]").forEach((btn) => {
+        const active = btn.dataset.vizModeOption === vizMode;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-selected", active ? "true" : "false");
+    });
+
+    document.querySelectorAll(".calib-control").forEach((el) => {
+        if ("disabled" in el) el.disabled = vizMode !== "anatomy";
+    });
+
+    if (vizMode !== "anatomy" && calibOn) {
+        calibOn = false;
+        setCalibUI();
+    }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     applyAllAnchors();
+
+    document.querySelectorAll("[data-viz-mode-option]").forEach((btn) => {
+        btn.addEventListener("click", () => setVizMode(btn.dataset.vizModeOption));
+    });
+    setVizMode(vizMode);
 
     document.getElementById("btnCalib").onclick = () => {
         calibOn = !calibOn;
@@ -203,16 +242,49 @@ const CONDS = [
 /* ---------------------------------------------------
  * 3. 依翻譯 + 摘要文字啟動標註
  * --------------------------------------------------*/
+const PART_ID_BY_CODE = { AO: "ao", PA: "pa", LA: "la", RA: "ra", LV: "lv", RV: "rv" };
+const CONDITION_LABELS = {
+    dilatation: "擴大",
+    hypertrophy: "肥厚",
+    stenosis: "狹窄",
+    regurgitation: "逆流",
+    dysfunction: "功能異常",
+    pressure_elevation: "壓力升高",
+    aneurysm: "動脈瘤",
+    hypokinesia: "運動減弱",
+    normal: "正常",
+    other: "其他",
+};
+const SEVERITY_LABELS = {
+    trace: "極輕度",
+    mild: "輕度",
+    moderate: "中度",
+    severe: "重度",
+    unknown: "",
+};
+
+function findingLabel(finding) {
+    const severity = SEVERITY_LABELS[finding.severity] || "";
+    const condition = CONDITION_LABELS[finding.condition] || finding.condition || "有提及";
+    return [severity, condition].filter(Boolean).join(" ");
+}
+
+function resetHeartFeedback() {
+    document.querySelectorAll('.callout-group').forEach(g => {
+        g.classList.remove('active');
+    });
+}
+
 function highlight(text) {
-    if (!text) return;
+    if (!text) {
+        resetHeartFeedback();
+        return;
+    }
 
     const low = text.toLowerCase();
     const sentences = low.split(/[。！？\.\n]/);
 
-    // 先清掉之前的 active & 說明文字
-    document.querySelectorAll('.callout-group').forEach(g => {
-        g.classList.remove('active');
-    });
+    // 先清掉之前的說明文字
     ["ao", "la", "lv", "ra", "rv", "pa"].forEach(id => {
         const desc = document.getElementById("desc-" + id);
         if (desc) {
@@ -244,6 +316,12 @@ function highlight(text) {
         }
     });
 
+    ["ao", "la", "lv", "ra", "rv", "pa"].forEach(id => {
+        if (status[id]) return;
+        const g = document.getElementById("label-" + id);
+        if (g) g.classList.remove("active");
+    });
+
     for (let id in status) {
         if (!status[id].hit) continue;
 
@@ -263,6 +341,50 @@ function highlight(text) {
             d.style.fill = "#000";
         }
     }
+}
+
+function highlightStructuredData(data) {
+    const findings = Array.isArray(data?.findings) ? data.findings : [];
+    const status = {};
+
+    findings.forEach((finding) => {
+        if (!finding || finding.status === "absent") return;
+        const id = PART_ID_BY_CODE[String(finding.part || "").toUpperCase()];
+        if (!id) return;
+        if (!status[id]) status[id] = [];
+        status[id].push(finding);
+    });
+
+    ["ao", "la", "lv", "ra", "rv", "pa"].forEach((id) => {
+        const g = document.getElementById("label-" + id);
+        const d = document.getElementById("desc-" + id);
+        const items = status[id] || [];
+
+        if (!items.length) {
+            if (g) g.classList.remove("active");
+            if (d) {
+                d.textContent = "--";
+                d.style.fill = "#000";
+            }
+            return;
+        }
+
+        if (g) g.classList.add("active");
+        if (d) {
+            const labels = items.map(findingLabel).filter(Boolean);
+            d.textContent = labels.length ? labels.slice(0, 2).join("、") : "有提及";
+            d.style.fill = "var(--danger)";
+        }
+    });
+}
+
+function renderStructuredJson(data, statusText = "解析完成") {
+    const panel = document.getElementById('structuredPanel');
+    const pre = document.getElementById('structuredJson');
+    const status = document.getElementById('structuredStatus');
+    if (status) status.textContent = statusText;
+    if (pre) pre.textContent = data ? JSON.stringify(data, null, 2) : '';
+    if (panel && data) panel.open = true;
 }
 
 
@@ -368,9 +490,12 @@ function addBaseModels(selectEl, bases) {
 }
 
 function displayModelName(base) {
+    const modelName = base.toLowerCase();
+    if (modelName.includes("translator-baseline150")) return "LLaMA 3.2 Instruct";
+    if (modelName.includes("summarizer-complete-clinical-v5")) return "LLaMA 3.2 Instruct";
+
     return base
         .replace(/^llama-3\.2-3b-instruct-/, "llama3.2-3b-")
-        .replace("-translator-baseline150", "-trans-baseline150")
         .replace("-summarizer-clinical-v4", "-sum-clinical-v4")
         .replace("-translator", "-trans")
         .replace("-summarizer", "-sum");
@@ -467,11 +592,13 @@ async function init() {
         const summarizerModels = sModels.length ? sModels : all;
         modelPickerState.summarizer.catalog = buildCatalog(summarizerModels);
         const summarizerBases = Object.keys(modelPickerState.summarizer.catalog).sort();
-        const newSummarizerModels = summarizerBases.filter(
-            n => n.toLowerCase().includes('summarizer-clinical-v4')
-        );
+        const isNewSummarizerModel = (name) => {
+            const modelName = name.toLowerCase();
+            return modelName.includes('summarizer-complete-clinical-v5');
+        };
+        const newSummarizerModels = summarizerBases.filter(isNewSummarizerModel);
         const oldSummarizerModels = summarizerBases.filter(
-            n => !n.toLowerCase().includes('summarizer-clinical-v4')
+            n => !isNewSummarizerModel(n)
         );
 
         if (newSummarizerModels.length) {
@@ -490,10 +617,10 @@ async function init() {
         sSel.value = sDefault.base || firstEnabledValue(sSel);
 
         renderQuantButtons("translator", tDefault.quant || "q8");
-        renderQuantButtons("summarizer", "q5");
+        renderQuantButtons("summarizer", sDefault.quant || "q8");
 
         tSel.onchange = () => renderQuantButtons("translator", "q8");
-        sSel.onchange = () => renderQuantButtons("summarizer", "q5");
+        sSel.onchange = () => renderQuantButtons("summarizer", "q8");
     } catch (e) { }
 }
 
@@ -580,8 +707,8 @@ const PROGRESS_STATUS_COOLDOWN_MS = 900;
 function progressStatusFor(value) {
     if (value < 14) return "送出報告與模型設定";
     if (value < 42) return "翻譯模型推論中";
-    if (value < 72) return "摘要模型推論中";
-    if (value < 99) return "整理輸出與一致性檢查";
+    if (value < 86) return "摘要模型推論中";
+    if (value < 99) return "結構化 JSON 解析中";
     return "完成，正在顯示結果";
 }
 
@@ -782,11 +909,66 @@ function setStreamingPhaseProgress(progress, label) {
 }
 
 function tickStreamingProgress(phase) {
-    const ceiling = phase === 'translate' ? 50 : 93;
+    const ceiling = phase === 'translate' ? 46 : 86;
     const bump = phase === 'translate' ? 0.45 : 0.32;
-    progressValue = Math.min(ceiling, Math.max(progressValue, phase === 'translate' ? 8 : 58) + bump);
+    progressValue = Math.min(ceiling, Math.max(progressValue, phase === 'translate' ? 8 : 54) + bump);
     setProgress(progressValue);
 }
+
+function setImageStatus(text) {
+    const status = document.getElementById('aiImageStatus');
+    if (status) status.textContent = text;
+}
+
+function setGenerateImageEnabled(enabled) {
+    const btn = document.getElementById('btnGenerateImage');
+    if (btn) btn.disabled = !enabled;
+}
+
+function renderImagePrompt(prompt) {
+    const pre = document.getElementById('aiPromptPreview');
+    if (!pre) return;
+    pre.hidden = !prompt;
+    pre.textContent = prompt || '';
+}
+
+async function generateAiImage() {
+    if (!latestStructuredData) return;
+
+    const btn = document.getElementById('btnGenerateImage');
+    const preview = document.getElementById('aiPreview');
+    const img = preview?.querySelector('.ai-preview-img');
+    try {
+        if (btn) btn.disabled = true;
+        setVizMode('ai');
+        setImageStatus('產生中');
+        renderImagePrompt('');
+        const result = await api('/image/generate', {
+            structured: latestStructuredData,
+            summary: latestSummaryText,
+            source: latestSourceText,
+        });
+        renderImagePrompt(result.prompt || '');
+        if (result.image_url && img) {
+            img.src = result.image_url;
+            if (preview) preview.classList.add('has-generated-image');
+            setImageStatus(result.region_label ? `${result.region_label}完成` : '生成完成');
+        } else {
+            if (preview) preview.classList.remove('has-generated-image');
+            setImageStatus(result.error ? '無可產生部位' : '等待分析結果');
+            if (result.error) renderImagePrompt(result.error);
+        }
+    } catch (e) {
+        setImageStatus('生成失敗');
+        renderImagePrompt(e.message || String(e));
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+const generateImageBtn = document.getElementById('btnGenerateImage');
+if (generateImageBtn) generateImageBtn.onclick = generateAiImage;
+
 
 /* ---------------------------------------------------
  * 8. Pipeline 按鈕
@@ -794,16 +976,26 @@ function tickStreamingProgress(phase) {
 document.getElementById('btn-pipeline').onclick = async () => {
     const src = document.getElementById('src').value.trim();
     if (!src) return alert('請輸入報告內容');
+    latestSourceText = src;
 
     const btn = document.getElementById('btn-pipeline');
     const elT = document.getElementById('trans');
     const elS = document.getElementById('sum');
     const warnT = document.getElementById('warnT');
     const warnS = document.getElementById('warnS');
+    const structuredPre = document.getElementById('structuredJson');
+    const structuredStatus = document.getElementById('structuredStatus');
     elT.textContent = '';
     elS.textContent = '';
     warnT.textContent = '';
     warnS.textContent = '';
+    if (structuredPre) structuredPre.textContent = '';
+    if (structuredStatus) structuredStatus.textContent = '等待解析';
+    latestStructuredData = null;
+    latestSummaryText = '';
+    setImageStatus('等待分析結果');
+    setGenerateImageEnabled(false);
+    renderImagePrompt('');
     document.querySelectorAll('.callout-group').forEach(g => g.classList.remove('active'));
     btn.disabled = true;
     btn.textContent = '推論中';
@@ -811,6 +1003,7 @@ document.getElementById('btn-pipeline').onclick = async () => {
 
     let translation = '';
     let summary = '';
+    let structuredData = null;
 
     try {
         await apiStream('/pipeline_stream', {
@@ -835,6 +1028,9 @@ document.getElementById('btn-pipeline').onclick = async () => {
                     summary = '';
                     elS.textContent = '';
                 }
+                if (event.phase === 'extract_json' && structuredStatus) {
+                    structuredStatus.textContent = '解析中';
+                }
                 return;
             }
 
@@ -847,6 +1043,7 @@ document.getElementById('btn-pipeline').onclick = async () => {
                 }
                 if (event.phase === 'summary') {
                     summary += event.delta || '';
+                    latestSummaryText = summary;
                     elS.textContent = summary;
                 }
                 highlight(`${translation}
@@ -869,8 +1066,18 @@ ${summary}`);
                 }
                 if (event.phase === 'summary') {
                     summary = event.text || summary;
+                    latestSummaryText = summary;
                     elS.textContent = summary;
                     if (event.warn_missing?.length) warnS.textContent = '⚠️ 缺漏: ' + event.warn_missing;
+                }
+                if (event.phase === 'extract_json') {
+                    structuredData = event.structured || null;
+                    latestStructuredData = structuredData;
+                    setGenerateImageEnabled(!!structuredData);
+                    if (structuredData) setImageStatus('可產生示意圖');
+                    renderStructuredJson(structuredData, event.warning ? '備援解析' : '解析完成');
+                    if (structuredData) highlightStructuredData(structuredData);
+                    return;
                 }
                 highlight(`${translation}
 ${summary}`);
@@ -878,6 +1085,13 @@ ${summary}`);
             }
 
             if (event.event === 'done') {
+                if (event.structured && !structuredData) {
+                    structuredData = event.structured;
+                    latestStructuredData = structuredData;
+                    setGenerateImageEnabled(!!structuredData);
+                    if (structuredData) setImageStatus('可產生示意圖');
+                    renderStructuredJson(structuredData, '解析完成');
+                }
                 if (event.warn_translation_missing?.length)
                     warnT.textContent = '⚠️ 缺漏: ' + event.warn_translation_missing;
                 if (event.warn_summary_missing?.length)
@@ -886,7 +1100,8 @@ ${summary}`);
         });
 
         finishProgress(() => {
-            highlight(`${translation}
+            if (structuredData) highlightStructuredData(structuredData);
+            else highlight(`${translation}
 ${summary}`);
             btn.disabled = false;
             btn.textContent = '開始分析';
@@ -895,6 +1110,7 @@ ${summary}`);
         failProgress("串流推論失敗，請檢查模型服務");
         elT.textContent = '錯誤: ' + e.message;
         elS.textContent = '';
+        renderStructuredJson(null, '解析失敗');
         btn.disabled = false;
         btn.textContent = '開始分析';
     }
@@ -904,10 +1120,18 @@ ${summary}`);
  * --------------------------------------------------*/
 document.getElementById('btn-clear').onclick = () => {
     resetProgress();
+    resetHeartFeedback();
     document.getElementById('src').value = '';
     document.getElementById('trans').textContent = '';
     document.getElementById('sum').textContent = '';
     document.querySelectorAll('.callout-group').forEach(g => g.classList.remove('active'));
+    renderStructuredJson(null, '等待解析');
+    latestStructuredData = null;
+    latestSummaryText = '';
+    latestSourceText = '';
+    setImageStatus('等待分析結果');
+    setGenerateImageEnabled(false);
+    renderImagePrompt('');
 
     // 清掉一致性檢測警告
     document.getElementById('warnT').textContent = '';
