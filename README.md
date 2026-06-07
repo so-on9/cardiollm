@@ -248,9 +248,6 @@ docker compose up -d --force-recreate --no-deps ollama
 
 ## 安全注意事項
 
-- `.env` 不要上傳，裡面有 `API_KEY` 與 `UI_PASSWORD`
-- Ollama API 預設只綁定 `127.0.0.1`，不要任意改成公開位址
-- GGUF 模型檔案很大，通常不放 git
 - 本系統輸出應作為醫療人員輔助，不能取代醫師最終判讀
 - 喔愛 蝦咪系愛 你看我的眼神怎那麼可愛
 
