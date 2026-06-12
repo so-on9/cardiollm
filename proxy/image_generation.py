@@ -34,7 +34,7 @@ class ImageGenerateReq(BaseModel):
     width: int = Field(ge=256, le=1536, default=1024)
     height: int = Field(ge=256, le=1536, default=1024)
     steps: int = Field(ge=1, le=80, default=24)
-    cfg_scale: float = Field(ge=1.0, le=20.0, default=7.0)
+    cfg_scale: float = Field(ge=1.0, le=20.0, default=5.0)
 
 IMAGE_CONDITION_TEXT = {
     "dilatation": "dilatation / enlargement",
@@ -95,7 +95,9 @@ def build_image_prompt(structured: dict, summary: str = "") -> str:
 def build_negative_image_prompt() -> str:
     return (
         "cartoon, fantasy, horror, gore, blood, distorted anatomy, extra organs, wrong labels, "
-        "illegible text, watermark, logo, low quality, blurry, noisy, photorealistic surgery"
+        "illegible text, watermark, logo, low quality, blurry, noisy, photorealistic surgery, "
+        "blue discoloration, cyan stains, colored patches, spots, plaque, lesions, bubbles, "
+        "rash-like texture, paint overlay, heatmap, disease marks, artificial tint"
     )
 
 
@@ -153,19 +155,20 @@ def build_masked_image_prompt(structured: dict, region_key: str, requested_condi
     severity_text = SEVERITY_TEXT.get(severity, "")
     strength_text = "clearly visible" if visual_strength == "clear" else "subtle"
     action_text = {
-        "dilatation": "Visibly widen the outer contour of this structure into the allowed masked margin; do not merely change its texture.",
-        "hypertrophy": "Visibly thicken the muscular wall while keeping the chamber recognizable.",
-        "stenosis": "Visibly narrow the affected anatomical opening while preserving surrounding anatomy.",
-        "regurgitation": "Show a restrained backward-flow visual cue confined to this structure.",
-        "dysfunction": "Show a restrained abnormal regional appearance without altering surrounding anatomy.",
-        "pressure_elevation": "Show restrained visual prominence of this vascular structure.",
+        "dilatation": "Subtly expand the anatomical contour into the allowed masked margin while keeping the same pink, red and beige heart tissue palette; do not add spots, stains, plaques, lesions or blue coloration.",
+        "hypertrophy": "Subtly thicken the muscular wall while keeping the same pink, red and beige heart tissue palette and the chamber recognizable.",
+        "stenosis": "Subtly narrow the affected anatomical opening while preserving surrounding anatomy and the original color palette.",
+        "regurgitation": "Show a very restrained backward-flow cue only if it matches the original illustration palette; do not add blue stains or disease marks.",
+        "dysfunction": "Use only subtle anatomical emphasis without changing color palette or adding lesion-like texture.",
+        "pressure_elevation": "Show restrained visual prominence of this vascular structure without colored overlays or spots.",
     }.get(condition, "Make the abnormality visible while preserving surrounding anatomy.")
     finding = " ".join(word for word in (severity_text, condition_text) if word)
     return (
         "Edit only the permitted anatomical region in the supplied heart cutaway illustration. "
-        "Preserve the original illustration style, lighting and all structures outside the edit region. "
+        "Preserve the original medical illustration style, black linework, lighting, texture and all structures outside the edit region. "
+        "Keep the natural pink, red, beige and white heart anatomy color palette. "
         f"In the {region['prompt']}, depict a {strength_text} {finding}. {action_text} "
-        "No labels, arrows, text, additional organs or background changes.",
+        "No labels, arrows, text, colored overlays, blue areas, spots, lesions, additional organs or background changes.",
         condition,
     )
 
@@ -208,11 +211,10 @@ def build_comfyui_masked_workflow(req: ImageGenerateReq, prompt: str, negative_p
         "6": {"class_type": "ImageScale", "inputs": {"image": ["5", 0], "upscale_method": "lanczos", "width": size, "height": size, "crop": "disabled"}},
         "7": {"class_type": "ImageToMask", "inputs": {"image": ["6", 0], "channel": "red"}},
         "7g": {"class_type": "GrowMask", "inputs": {"mask": ["7", 0], "expand": expand, "tapered_corners": True}},
-        "8": {"class_type": "VAEEncode", "inputs": {"pixels": ["3", 0], "vae": ["1", 2]}},
-        "9": {"class_type": "SetLatentNoiseMask", "inputs": {"samples": ["8", 0], "mask": ["7g", 0]}},
+        "8": {"class_type": "VAEEncodeForInpaint", "inputs": {"pixels": ["3", 0], "vae": ["1", 2], "mask": ["7", 0], "grow_mask_by": expand}},
         "10": {"class_type": "CLIPTextEncode", "inputs": {"text": prompt, "clip": ["1", 1]}},
         "11": {"class_type": "CLIPTextEncode", "inputs": {"text": negative_prompt, "clip": ["1", 1]}},
-        "12": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "seed": secrets.randbits(63), "steps": req.steps, "cfg": req.cfg_scale, "sampler_name": "dpmpp_2m", "scheduler": "karras", "positive": ["10", 0], "negative": ["11", 0], "latent_image": ["9", 0], "denoise": denoise}},
+        "12": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "seed": secrets.randbits(63), "steps": req.steps, "cfg": req.cfg_scale, "sampler_name": "dpmpp_2m", "scheduler": "karras", "positive": ["10", 0], "negative": ["11", 0], "latent_image": ["8", 0], "denoise": denoise}},
         "13": {"class_type": "VAEDecode", "inputs": {"samples": ["12", 0], "vae": ["1", 2]}},
         "14": {"class_type": "ImageCompositeMasked", "inputs": {"destination": ["3", 0], "source": ["13", 0], "x": 0, "y": 0, "resize_source": False, "mask": ["7g", 0]}},
         "15": {"class_type": "MaskComposite", "inputs": {"destination": ["3ma", 0], "source": ["7g", 0], "x": 0, "y": 0, "operation": "subtract"}},
@@ -271,6 +273,117 @@ def generate_with_comfyui(req: ImageGenerateReq, prompt: str, negative_prompt: s
     }
 
 
+def save_generated_pil(image) -> str:
+    name = f"heart_ai_{int(time.time() * 1000)}.png"
+    path = GENERATED_DIR / name
+    image.save(path, format="PNG")
+    return f"/static/generated/{name}"
+
+
+def _clip_paste_rgba(destination, source, xy):
+    x, y = xy
+    dst_w, dst_h = destination.size
+    src_w, src_h = source.size
+    left = max(0, x)
+    top = max(0, y)
+    right = min(dst_w, x + src_w)
+    bottom = min(dst_h, y + src_h)
+    if left >= right or top >= bottom:
+        return
+    crop = source.crop((left - x, top - y, right - x, bottom - y))
+    destination.alpha_composite(crop, (left, top))
+
+
+def _local_warp_scale(severity: str, visual_strength: str) -> float:
+    if visual_strength != "clear":
+        return 1.12
+    return {
+        "severe": 1.34,
+        "moderate": 1.26,
+        "mild": 1.18,
+        "trace": 1.10,
+        "unknown": 1.22,
+    }.get(severity or "unknown", 1.22)
+
+
+def generate_with_local_warp(req: ImageGenerateReq, prompt: str, negative_prompt: str, region_key: str, condition: str) -> dict:
+    from PIL import Image, ImageChops, ImageFilter
+
+    region = IMAGE_MASK_REGIONS[region_key]
+    if not HEART_BASE_PATH.exists():
+        raise RuntimeError(f"Missing image asset: {HEART_BASE_PATH.name}")
+    mask_path = HEART_MASK_DIR / region["filename"]
+    if not mask_path.exists():
+        raise RuntimeError(f"Missing mask asset: {region['filename']}")
+
+    size = max(256, min(768, COMFYUI_IMAGE_SIZE))
+    size -= size % 8
+    base = Image.open(HEART_BASE_PATH).convert("RGBA").resize((size, size), Image.Resampling.LANCZOS)
+    mask = Image.open(mask_path).convert("L").resize((size, size), Image.Resampling.LANCZOS)
+    threshold = mask.point(lambda px: 255 if px > 12 else 0)
+    bbox = threshold.getbbox()
+    if not bbox:
+        raise RuntimeError(f"Empty mask: {region['filename']}")
+
+    detected_condition, severity = resolve_visual_condition(req.structured or {}, region_key, req.condition)
+    if condition == "dilatation" or detected_condition == "dilatation":
+        scale = _local_warp_scale(severity, req.visual_strength)
+    elif condition == "hypertrophy" or detected_condition == "hypertrophy":
+        scale = 1.16 if req.visual_strength == "clear" else 1.08
+    else:
+        scale = 1.12 if req.visual_strength == "clear" else 1.06
+
+    x0, y0, x1, y1 = bbox
+    pad = max(14, int(size * 0.065))
+    box = (max(0, x0 - pad), max(0, y0 - pad), min(size, x1 + pad), min(size, y1 + pad))
+    crop = base.crop(box)
+    crop_mask = threshold.crop(box)
+    w, h = crop.size
+    scaled_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+    enlarged = crop.resize(scaled_size, Image.Resampling.BICUBIC)
+
+    hard_mask = crop_mask.resize(scaled_size, Image.Resampling.NEAREST)
+    feather_radius = max(3, int(size * 0.011))
+    feather_mask = hard_mask.filter(ImageFilter.GaussianBlur(feather_radius))
+    # Keep the anatomical core opaque; only the outside edge is softened.
+    inner_core = hard_mask.filter(ImageFilter.MinFilter(5))
+    alpha_mask = ImageChops.lighter(inner_core, feather_mask)
+    alpha = enlarged.getchannel("A")
+    combined_alpha = ImageChops.multiply(alpha, alpha_mask)
+    enlarged.putalpha(combined_alpha)
+
+    result = base.copy()
+    center_x = (box[0] + box[2]) / 2
+    center_y = (box[1] + box[3]) / 2
+    image_center_x = size / 2
+    image_center_y = size / 2
+    vector_x = center_x - image_center_x
+    vector_y = center_y - image_center_y
+    length = max(1.0, (vector_x ** 2 + vector_y ** 2) ** 0.5)
+    outward = max(3, int(size * 0.026 * (scale - 1.0) / 0.26))
+    offset_x = vector_x / length * outward
+    offset_y = vector_y / length * outward
+    paste_xy = (
+        int(center_x + offset_x - scaled_size[0] / 2),
+        int(center_y + offset_y - scaled_size[1] / 2),
+    )
+    _clip_paste_rgba(result, enlarged, paste_xy)
+
+    return {
+        "backend": "local_warp",
+        "image_url": save_generated_pil(result),
+        "prompt": prompt + "\n\nLocal warp: deterministic mask-based anatomical enlargement; no diffusion texture synthesis.",
+        "negative_prompt": negative_prompt,
+        "region": region_key,
+        "region_label": region["label"],
+        "size": size,
+        "mode": "mask_local_warp",
+        "condition": detected_condition,
+        "warp_scale": round(scale, 3),
+        "warp_offset": [round(offset_x, 1), round(offset_y, 1)],
+    }
+
+
 def generate_with_webui(req: ImageGenerateReq, prompt: str, negative_prompt: str) -> dict:
     if not IMAGE_API_URL:
         raise RuntimeError("IMAGE_API_URL is not configured")
@@ -318,6 +431,30 @@ def generate_image(req: ImageGenerateReq) -> dict:
                 "error": str(e),
             }
 
+    if backend in {"local_warp", "warp", "local"}:
+        region_key = select_mask_region(req.structured or {}, req.region)
+        if not region_key:
+            return {
+                "backend": "local_warp",
+                "image_url": None,
+                "prompt": "",
+                "negative_prompt": negative_prompt,
+                "error": "結構化結果中沒有可對應至示意圖的異常部位。",
+            }
+        prompt, condition = build_masked_image_prompt(req.structured or {}, region_key, req.condition, req.visual_strength)
+        try:
+            return generate_with_local_warp(req, prompt, negative_prompt, region_key, condition)
+        except Exception as e:
+            return {
+                "backend": "local_warp",
+                "image_url": None,
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "region": region_key,
+                "region_label": IMAGE_MASK_REGIONS[region_key]["label"],
+                "error": str(e),
+            }
+
     if backend == "comfyui":
         region_key = select_mask_region(req.structured or {}, req.region)
         if not region_key:
@@ -347,5 +484,5 @@ def generate_image(req: ImageGenerateReq) -> dict:
         "image_url": None,
         "prompt": prompt,
         "negative_prompt": negative_prompt,
-        "message": "IMAGE_BACKEND is mock. Set IMAGE_BACKEND=comfyui and IMAGE_API_URL to enable masked generation.",
+        "message": "IMAGE_BACKEND is mock. Set IMAGE_BACKEND=local_warp for deterministic masked deformation or comfyui for diffusion generation.",
     }

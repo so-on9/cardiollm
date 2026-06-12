@@ -491,7 +491,8 @@ function addBaseModels(selectEl, bases) {
 
 function displayModelName(base) {
     const modelName = base.toLowerCase();
-    if (modelName.includes("translator-baseline150")) return "LLaMA 3.2 Instruct";
+    if (modelName.includes("translator-legacy-v3-cp140")) return "LLaMA 3.2 Instruct";
+    if (modelName.includes("translator-baseline150")) return "LLaMA 3.2 Instruct Base150";
     if (modelName.includes("summarizer-complete-clinical-v5")) return "LLaMA 3.2 Instruct";
 
     return base
@@ -573,11 +574,13 @@ async function init() {
         const translatorModels = tModels.length ? tModels : all;
         modelPickerState.translator.catalog = buildCatalog(translatorModels);
         const translatorBases = Object.keys(modelPickerState.translator.catalog).sort();
-        const newTranslatorModels = translatorBases.filter(
-            n => n.toLowerCase().includes('translator-baseline150')
-        );
+        const isNewTranslatorModel = (name) => {
+            const modelName = name.toLowerCase();
+            return modelName.includes('translator-legacy-v3-cp140');
+        };
+        const newTranslatorModels = translatorBases.filter(isNewTranslatorModel);
         const oldTranslatorModels = translatorBases.filter(
-            n => !n.toLowerCase().includes('translator-baseline150')
+            n => !isNewTranslatorModel(n)
         );
 
         if (newTranslatorModels.length) {
@@ -932,42 +935,103 @@ function renderImagePrompt(prompt) {
     pre.textContent = prompt || '';
 }
 
-async function generateAiImage() {
-    if (!latestStructuredData) return;
+const AI_PART_LABELS = {
+    AO: '主動脈',
+    PA: '肺動脈',
+    LA: '左心房',
+    RA: '右心房',
+    LV: '左心室',
+    RV: '右心室',
+};
 
-    const btn = document.getElementById('btnGenerateImage');
+const AI_CONDITION_LABELS = {
+    dilatation: '擴大',
+    hypertrophy: '肥厚',
+    pressure_elevation: '壓力升高',
+};
+
+function applyImageResult(result) {
     const preview = document.getElementById('aiPreview');
     const img = preview?.querySelector('.ai-preview-img');
+    renderImagePrompt(result.prompt || '');
+    if (result.image_url && img) {
+        img.src = `${result.image_url}?t=${Date.now()}`;
+        if (preview) preview.classList.add('has-generated-image');
+        setImageStatus(result.region_label ? `${result.region_label}完成` : '生成完成');
+        return;
+    }
+    if (preview) preview.classList.remove('has-generated-image');
+    setImageStatus(result.error ? '無可產生部位' : '等待分析結果');
+    if (result.error) renderImagePrompt(result.error);
+}
+
+async function requestAiImage(payload, button) {
     try {
-        if (btn) btn.disabled = true;
+        if (button) button.disabled = true;
         setVizMode('ai');
         setImageStatus('產生中');
         renderImagePrompt('');
-        const result = await api('/image/generate', {
-            structured: latestStructuredData,
-            summary: latestSummaryText,
-            source: latestSourceText,
-        });
-        renderImagePrompt(result.prompt || '');
-        if (result.image_url && img) {
-            img.src = result.image_url;
-            if (preview) preview.classList.add('has-generated-image');
-            setImageStatus(result.region_label ? `${result.region_label}完成` : '生成完成');
-        } else {
-            if (preview) preview.classList.remove('has-generated-image');
-            setImageStatus(result.error ? '無可產生部位' : '等待分析結果');
-            if (result.error) renderImagePrompt(result.error);
-        }
+        const result = await api('/image/generate', payload);
+        applyImageResult(result);
     } catch (e) {
         setImageStatus('生成失敗');
         renderImagePrompt(e.message || String(e));
     } finally {
-        if (btn) btn.disabled = false;
+        if (button) button.disabled = false;
     }
+}
+
+async function generateAiImage() {
+    if (!latestStructuredData) return;
+    const btn = document.getElementById('btnGenerateImage');
+    await requestAiImage({
+        structured: latestStructuredData,
+        summary: latestSummaryText,
+        source: latestSourceText,
+    }, btn);
+}
+
+function buildTestStructuredData() {
+    const part = document.getElementById('aiTestPart')?.value || 'RA';
+    const condition = document.getElementById('aiTestCondition')?.value || 'dilatation';
+    const severity = document.getElementById('aiTestSeverity')?.value || 'moderate';
+    const partName = AI_PART_LABELS[part] || part;
+    const conditionName = AI_CONDITION_LABELS[condition] || condition;
+    return {
+        version: '1.0',
+        findings: [{
+            part,
+            part_name: partName,
+            condition,
+            severity,
+            status: 'present',
+            evidence: `測試：${partName}${conditionName}`,
+            confidence: 1,
+            visual_action: 'highlight',
+        }],
+        measurements: [],
+        overall: {
+            summary: `測試：${partName}${conditionName}`,
+            has_abnormality: true,
+        },
+    };
+}
+
+async function generateTestAiImage() {
+    const btn = document.getElementById('btnGenerateTestImage');
+    const structured = buildTestStructuredData();
+    await requestAiImage({
+        structured,
+        summary: structured.overall.summary,
+        source: structured.overall.summary,
+    }, btn);
 }
 
 const generateImageBtn = document.getElementById('btnGenerateImage');
 if (generateImageBtn) generateImageBtn.onclick = generateAiImage;
+
+const generateTestImageBtn = document.getElementById('btnGenerateTestImage');
+if (generateTestImageBtn) generateTestImageBtn.onclick = generateTestAiImage;
 
 
 /* ---------------------------------------------------

@@ -2,8 +2,10 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
-    ports:
-      - "${OLLAMA_BIND:-127.0.0.1}:${OLLAMA_PORT:-11434}:11434"
+    # Ollama is only reachable on the Docker internal network.
+    # External users must go through Caddy -> FastAPI proxy -> Ollama.
+    expose:
+      - "11434"
     gpus: all
     volumes:
       - ${HOME}/cardiollm/gguf:/models
@@ -35,6 +37,7 @@ services:
       SESSION_HOURS: ${SESSION_HOURS}
       COOKIE_SECURE: "true"  # HTTPS 環境必須為 true
       KEEP_ALIVE: ${KEEP_ALIVE}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       OLLAMA_URL: "http://ollama:11434"
       OLLAMA_TRANS_MODEL: ${OLLAMA_TRANS_MODEL}
       OLLAMA_SUM_MODEL: ${OLLAMA_SUM_MODEL}

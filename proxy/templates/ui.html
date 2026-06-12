@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <title>台中榮總心臟科翻譯/摘要LLM</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/ui.css?v=20260525comfyui4">
+  <link rel="stylesheet" href="/static/ui.css?v=20260607aitest1">
 </head>
 
 <body>
@@ -138,6 +138,27 @@
                 <div id="aiImageStatus" class="ai-preview-status">等待分析結果</div>
               </div>
             </div>
+            <div class="ai-test-panel" aria-label="AI 繪圖測試">
+              <select id="aiTestPart" class="ai-test-control" title="測試部位">
+                <option value="AO">AO 主動脈</option>
+                <option value="PA">PA 肺動脈</option>
+                <option value="LA">LA 左心房</option>
+                <option value="RA" selected>RA 右心房</option>
+                <option value="LV">LV 左心室</option>
+                <option value="RV">RV 右心室</option>
+              </select>
+              <select id="aiTestCondition" class="ai-test-control" title="測試病症">
+                <option value="dilatation" selected>擴大</option>
+                <option value="hypertrophy">肥厚</option>
+                <option value="pressure_elevation">壓力升高</option>
+              </select>
+              <select id="aiTestSeverity" class="ai-test-control" title="嚴重度">
+                <option value="mild">輕度</option>
+                <option value="moderate" selected>中度</option>
+                <option value="severe">重度</option>
+              </select>
+              <button id="btnGenerateTestImage" type="button" class="btn-ghost ai-generate-btn">產生測試圖</button>
+            </div>
             <div class="ai-preview-actions">
               <button id="btnGenerateImage" type="button" class="btn-ghost ai-generate-btn" disabled>產生示意圖</button>
             </div>
@@ -183,7 +204,7 @@
     </main>
   </div>
 
-  <script src="/static/ui.js?v=20260525comfyui4"></script>
+  <script src="/static/ui.js?v=20260611models1"></script>
 </body>
 
 </html>

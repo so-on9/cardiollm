@@ -558,6 +558,31 @@ input:disabled {
     align-items: center;
 }
 
+.ai-test-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.9fr) auto;
+    gap: 10px;
+    align-items: center;
+}
+
+.ai-test-control {
+    width: 100%;
+    min-width: 0;
+    height: 38px;
+    border: 1px solid var(--border);
+    border-radius: var(--control-radius);
+    background: var(--input-bg);
+    color: var(--text-main);
+    font-weight: 800;
+    padding: 0 12px;
+    outline: none;
+}
+
+.ai-test-control:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .ai-generate-btn {
     width: auto;
     min-height: 36px;
@@ -1042,6 +1067,15 @@ textarea {
 
     .ai-generate-btn {
         margin-left: auto;
+    }
+
+    .ai-test-panel {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .ai-test-panel .ai-generate-btn {
+        grid-column: 1 / -1;
+        width: 100%;
     }
 
 

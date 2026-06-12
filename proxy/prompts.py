@@ -15,6 +15,26 @@ ECHO_POLICY_PROMPT_TEXT = (
     "7. 術後瓣膜若仍有逆流，不可只因跨瓣壓差低就寫成瓣膜功能尚可；需同時保留逆流嚴重度。"
 )
 
+BASELINE150_LEGACY_ECHO_POLICY_PROMPT_TEXT = (
+    "特別注意不確定語氣：原文若出現 SUGGEST、SUSPECT、SUSPICIOUS、POSSIBLE、PROBABLE、"
+    "LIKELY、CANNOT EXCLUDE、RULE OUT、QUERY 或 QUESTIONABLE，不可翻成『有』、『確定』或肯定診斷；"
+    "應保留為『提示』、『懷疑』、『疑似』、『可能』、『無法排除』或『需排除』等不確定語氣。"
+    "例如 SUGGEST PULMONARY HYPERTENSION 應翻成『提示肺動脈高壓』或『懷疑肺動脈高壓』，"
+    "不可翻成『有肺動脈高壓』。"
+    "若原文已明確寫 MILD/MODERATE/SEVERE PULMONARY HYPERTENSION 或其他確定結論，才可使用相對肯定語氣。"
+)
+
+BASELINE150_LEGACY_TRANSLATION_SUFFIX = (
+    "請嚴格依照原文順序逐項翻譯為繁體中文，"
+    "不可摘要、不可重組句子、不可補充推論、"
+    "不可省略數值、單位、嚴重度、解剖位置或檢查結論；"
+    "原文中每個以逗號、句號或分號分隔的資訊片段都必須在譯文中對應一次；"
+    "括號內尺寸、E/E'、Qp/Qs、PG、GLS、肺動脈高壓、肺動脈主幹、"
+    "心包腔、側壁/外側壁/下外側壁、近端1/2、完全無收縮、"
+    "極輕度、輕度至中度、極少量等描述必須完整保留；"
+    f"{BASELINE150_LEGACY_ECHO_POLICY_PROMPT_TEXT}"
+)
+
 
 def strip_model_header(text: str) -> str:
     if not text:
@@ -474,13 +494,7 @@ def build_legacy_translate_prompt(req: TranslateReq) -> str:
 def build_strict_translate_prompt(req: TranslateReq) -> str:
     instruction = (
         "請將以下心臟超音波報告翻譯為臨床風格的繁體中文，並保持語氣一致且不加入推論。"
-        "請嚴格依照原文順序逐項翻譯為繁體中文，"
-        "不可摘要、不可重組句子、不可補充推論、"
-        "不可省略數值、單位、嚴重度、解剖位置或檢查結論；"
-        "原文中每個以逗號、句號或分號分隔的資訊片段都必須在譯文中對應一次；"
-        "括號內尺寸、E/E'、Qp/Qs、PG、GLS、肺動脈高壓、肺動脈主幹、"
-        "心包腔、側壁/外側壁/下外側壁、近端1/2、完全無收縮、"
-        "極輕度、輕度至中度、極少量等描述必須完整保留。"
+        f"{BASELINE150_LEGACY_TRANSLATION_SUFFIX}"
     )
     body = req.source.strip()
 
@@ -494,7 +508,15 @@ def build_strict_translate_prompt(req: TranslateReq) -> str:
 
 
 def build_translate_prompt(req: TranslateReq, model_name: str) -> str:
-    if "llama-3.2-3b-instruct-translator-deploy" in (model_name or ""):
+    model_name = model_name or ""
+    # The deployed "LLaMA 3.2 Instruct" option maps to translator-legacy-v3-cp140.
+    # Keep cp140 inference aligned with the baseline150-legacy-v3 training prompt;
+    # baseline150 Base150 also uses this stricter report-translation prompt.
+    if (
+        "llama-3.2-3b-instruct-translator-deploy" in model_name
+        or "llama-3.2-3b-instruct-translator-legacy-v3-cp140" in model_name
+        or "llama-3.2-3b-instruct-translator-baseline150" in model_name
+    ):
         return build_strict_translate_prompt(req)
     return build_legacy_translate_prompt(req)
 

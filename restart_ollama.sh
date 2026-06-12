@@ -23,12 +23,12 @@ else
   /usr/bin/docker compose restart -t 3 ollama >> "$LOG_FILE" 2>&1
 fi
 
-# 等待服務恢復
-echo "[$(ts)] waiting for http://127.0.0.1:11434/api/tags ..." >> "$LOG_FILE"
-if timeout 30 bash -c 'until curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; do sleep 1; done'; then
-  echo "[$(ts)] ollama is up" >> "$LOG_FILE"
+# 等待服務恢復。Ollama 不 publish 到 host port，改用 Docker healthcheck。
+echo "[$(ts)] waiting for ollama container health ..." >> "$LOG_FILE"
+if timeout 60 bash -c 'until [[ "$(/usr/bin/docker inspect -f "{{.State.Health.Status}}" ollama 2>/dev/null)" == "healthy" ]]; do sleep 1; done'; then
+  echo "[$(ts)] ollama is healthy" >> "$LOG_FILE"
 else
-  echo "[$(ts)] ERROR: ollama not responding within 30s" >> "$LOG_FILE"
+  echo "[$(ts)] ERROR: ollama not healthy within 60s" >> "$LOG_FILE"
 fi
 
 echo "[$(ts)] === restart_ollama.sh end ===" >> "$LOG_FILE"

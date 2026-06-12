@@ -33,8 +33,8 @@ cardiollm/
 負責載入 GGUF 模型並提供 Ollama API。
 
 - container name: `ollama`
-- 對外 port: `${OLLAMA_BIND:-127.0.0.1}:${OLLAMA_PORT:-11434}:11434`
-- 預設只綁定 `127.0.0.1`，避免 Ollama API 直接暴露到外網
+- 不對主機 publish port；只在 Docker 內網 `expose: 11434`
+- 外部請求必須走 `Caddy -> FastAPI proxy -> Ollama`
 - 掛載：
   - `./gguf` -> `/models`
   - `./ollama` -> `/modelfile`
@@ -82,8 +82,7 @@ UI_PASSWORD=replace-with-your-ui-password
 SESSION_HOURS=8
 COOKIE_SECURE=true
 KEEP_ALIVE=30m
-OLLAMA_BIND=127.0.0.1
-OLLAMA_PORT=11434
+CORS_ORIGINS=https://echollm.thu.edu.tw
 OLLAMA_TRANS_MODEL=llama-3.2-3b-instruct-translator-baseline150:q8
 OLLAMA_SUM_MODEL=llama-3.2-3b-instruct-summarizer-complete-clinical-v5:q8
 ```
@@ -186,8 +185,8 @@ cd ~/cardiollm
 1. 進入 `/home/ct/cardiollm`
 2. 根據參數選擇重啟模式
 3. 把執行紀錄寫到 `/home/ct/cardiollm/ollama_store/restart_ollama.log`
-4. 等待 `http://127.0.0.1:11434/api/tags` 恢復
-5. 若 30 秒內 Ollama 有回應，就記錄 `ollama is up`
+4. 等待 Docker healthcheck 顯示 `ollama` container 為 `healthy`
+5. 若 60 秒內恢復健康，就記錄 `ollama is healthy`
 
 ### fast 模式
 
