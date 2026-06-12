@@ -134,14 +134,14 @@ def mistral_inst_prompt(instruction: str, body: str) -> str:
 
 
 # --------- Config / Secrets ---------
-API_KEY = os.environ.get("API_KEY", "hpcverygood-api-key")
-UI_PASSWORD = os.environ.get("UI_PASSWORD", "hpcverygood")
+API_KEY = os.environ.get("API_KEY", "devkey")
+UI_PASSWORD = os.environ.get("UI_PASSWORD", "changeme")
 SESSION_HOURS = int(os.environ.get("SESSION_HOURS", "8"))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
 OLLAMA_URL = (
     os.environ.get("OLLAMA_BASE_URL")
     or os.environ.get("OLLAMA_URL")
-    or "http://140.128.103.191:11434"
+    or "http://replace-with-protected-ollama-host:30678"
 )
 MODEL_TRANS_DEFAULT = os.environ.get(
     "OLLAMA_TRANS_MODEL",
@@ -168,6 +168,11 @@ FALLBACK_MODEL_NAMES = sorted(
         MODEL_SUM_DEFAULT.rsplit(":", 1)[0] + ":q8",
     }
 )
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
 
 app = FastAPI(title="Cardio Dual-Model")
 BASE_DIR = Path(__file__).resolve().parent
@@ -176,10 +181,10 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=bool(CORS_ORIGINS),
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
 COOKIE_NAME = "cardio_sess"

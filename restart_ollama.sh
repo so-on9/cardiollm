@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOG_DIR="/home/ct/cardiollm/ollama_store"
-LOG_FILE="$LOG_DIR/restart_ollama.log"
-COMPOSE_DIR="/home/ct/cardiollm"
+LOG_DIR="/home/ct/cardiollm-k8s"
+LOG_FILE="$LOG_DIR/ollama_refresh.log"
+COMPOSE_DIR="/home/ct/cardiollm-k8s"
 
 mkdir -p "$LOG_DIR"
 
@@ -13,22 +13,26 @@ echo "[$(ts)] === restart_ollama.sh start ($*) ===" >> "$LOG_FILE"
 
 cd "$COMPOSE_DIR"
 
-MODE="${1:-fast}"   # fast | deep
-
-if [[ "$MODE" == "deep" ]]; then
-  echo "[$(ts)] deep refresh: docker compose up --force-recreate --no-deps ollama" >> "$LOG_FILE"
-  /usr/bin/docker compose up -d --force-recreate --no-deps ollama >> "$LOG_FILE" 2>&1
-else
-  echo "[$(ts)] fast restart: docker compose restart -t 3 ollama" >> "$LOG_FILE"
-  /usr/bin/docker compose restart -t 3 ollama >> "$LOG_FILE" 2>&1
+# This K8s repo does not run a local Ollama container.
+# It only checks the protected remote endpoint configured in .env.
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
 fi
 
-# 等待服務恢復
-echo "[$(ts)] waiting for http://127.0.0.1:11434/api/tags ..." >> "$LOG_FILE"
-if timeout 30 bash -c 'until curl -fsS http://127.0.0.1:11434/api/tags >/dev/null; do sleep 1; done'; then
-  echo "[$(ts)] ollama is up" >> "$LOG_FILE"
+OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-}"
+if [[ -z "$OLLAMA_BASE_URL" ]]; then
+  echo "[$(ts)] ERROR: OLLAMA_BASE_URL is not set" >> "$LOG_FILE"
+  exit 1
+fi
+
+echo "[$(ts)] checking remote Ollama: ${OLLAMA_BASE_URL}/api/tags" >> "$LOG_FILE"
+if timeout 30 bash -c 'until curl -fsS "${OLLAMA_BASE_URL}/api/tags" >/dev/null; do sleep 1; done'; then
+  echo "[$(ts)] remote ollama is reachable" >> "$LOG_FILE"
 else
-  echo "[$(ts)] ERROR: ollama not responding within 30s" >> "$LOG_FILE"
+  echo "[$(ts)] ERROR: remote ollama not responding within 30s" >> "$LOG_FILE"
 fi
 
 echo "[$(ts)] === restart_ollama.sh end ===" >> "$LOG_FILE"
