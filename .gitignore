@@ -53,3 +53,31 @@ ollama_store/
 
 # Local handoff / writing notes
 *PAPER_HANDOFF.md
+
+# Local runtime / databases / temporary files
+caddy_data/
+caddy_config/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.pid
+*.tmp
+*.bak
+*.old
+*.orig
+*.out
+*.err
+*.log.*
+.envrc
+safety.md
+
+# Local certificates / archives
+*.crt
+*.csr
+*.p12
+*.pfx
+*.tar
+*.tar.gz
+*.tgz
+*.zip

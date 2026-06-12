@@ -18,3 +18,17 @@ ollama_store/
 *.pt
 *.pth
 *.log
+k8s/secret.yaml
+proxy/__pycache__/
+proxy/static/generated/
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+*.crt
+*.tar
+*.zip
+PAPER_HANDOFF.md
+WEBSITE_PAPER_HANDOFF.md
+safety.md
