@@ -1,4 +1,3 @@
-const KEY = "supersecret";
 const HEART_IMG_LIGHT = "/static/Heart_diagram_nobg.png";
 const HEART_IMG_DARK_CANDIDATES = [
     "/static/Heart_diagram_nobg_dark.png",
@@ -378,6 +377,18 @@ function highlightStructuredData(data) {
     });
 }
 
+function clearStructuredHighlights() {
+    ["ao", "la", "lv", "ra", "rv", "pa"].forEach((id) => {
+        const g = document.getElementById("label-" + id);
+        const d = document.getElementById("desc-" + id);
+        if (g) g.classList.remove("active");
+        if (d) {
+            d.textContent = "--";
+            d.style.fill = "#000";
+        }
+    });
+}
+
 function renderStructuredJson(data, statusText = "解析完成") {
     const panel = document.getElementById('structuredPanel');
     const pre = document.getElementById('structuredJson');
@@ -394,7 +405,7 @@ function renderStructuredJson(data, statusText = "解析完成") {
 async function api(path, body) {
     const r = await fetch(path, {
         method: body ? 'POST' : 'GET',
-        headers: { 'x-api-key': KEY, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : null
     });
     if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
@@ -404,7 +415,7 @@ async function api(path, body) {
 async function apiStream(path, body, onEvent) {
     const r = await fetch(path, {
         method: 'POST',
-        headers: { 'x-api-key': KEY, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
     });
     if (!r.ok) {
@@ -450,8 +461,10 @@ async function apiStream(path, body, onEvent) {
 /* ---------------------------------------------------
  * 5. 初始化模型清單
  * --------------------------------------------------*/
-const QUANT_ORDER = ["q4", "q5", "q8"];
+const QUANT_DISPLAY_ORDER = ["q4", "q5", "q8"];
+const QUANT_PREFERENCE_ORDER = ["q8", "q5", "q4"];
 const QUANT_LABELS = { q4: "Q4", q5: "Q5", q8: "Q8" };
+const DEFAULT_QUANT = "q8";
 const modelPickerState = {
     translator: { catalog: {}, selectedQuant: "" },
     summarizer: { catalog: {}, selectedQuant: "" },
@@ -491,6 +504,9 @@ function addBaseModels(selectEl, bases) {
 
 function displayModelName(base) {
     const modelName = base.toLowerCase();
+    if (modelName.includes("ministral3-3b-instruct-translator-cp220")) return "Ministral 3 3B Instruct";
+    if (modelName.includes("ministral3-3b-instruct-summarizer")) return "Ministral 3 3B Instruct";
+    if (modelName.includes("translategemma-4b-it")) return "TranslateGemma 4B IT";
     if (modelName.includes("translator-legacy-v3-cp140")) return "LLaMA 3.2 Instruct";
     if (modelName.includes("translator-baseline150")) return "LLaMA 3.2 Instruct Base150";
     if (modelName.includes("summarizer-complete-clinical-v5")) return "LLaMA 3.2 Instruct";
@@ -509,7 +525,7 @@ function firstEnabledValue(selectEl) {
 function chooseQuant(entry, preferred = "") {
     const available = entry ? entry.quants : {};
     if (preferred && available[preferred]) return preferred;
-    return QUANT_ORDER.find((q) => available[q]) || "";
+    return QUANT_PREFERENCE_ORDER.find((q) => available[q]) || "";
 }
 
 function defaultBaseAndQuant(defaultName, catalog) {
@@ -532,7 +548,7 @@ function renderQuantButtons(kind, preferredQuant = "") {
     state.selectedQuant = selected;
     quantEl.innerHTML = "";
 
-    QUANT_ORDER.forEach((q) => {
+    QUANT_DISPLAY_ORDER.forEach((q) => {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "quant-pill";
@@ -576,7 +592,9 @@ async function init() {
         const translatorBases = Object.keys(modelPickerState.translator.catalog).sort();
         const isNewTranslatorModel = (name) => {
             const modelName = name.toLowerCase();
-            return modelName.includes('translator-legacy-v3-cp140');
+            return modelName.includes('translator-legacy-v3-cp140')
+                || modelName.includes('ministral3-3b-instruct-translator-cp220')
+                || modelName.includes('translategemma-4b-it');
         };
         const newTranslatorModels = translatorBases.filter(isNewTranslatorModel);
         const oldTranslatorModels = translatorBases.filter(
@@ -597,7 +615,9 @@ async function init() {
         const summarizerBases = Object.keys(modelPickerState.summarizer.catalog).sort();
         const isNewSummarizerModel = (name) => {
             const modelName = name.toLowerCase();
-            return modelName.includes('summarizer-complete-clinical-v5');
+            return modelName.includes('summarizer-complete-clinical-v5')
+                || modelName.includes('translategemma-4b-it')
+                || modelName.includes('ministral3-3b-instruct-summarizer');
         };
         const newSummarizerModels = summarizerBases.filter(isNewSummarizerModel);
         const oldSummarizerModels = summarizerBases.filter(
@@ -619,11 +639,11 @@ async function init() {
         tSel.value = tDefault.base || firstEnabledValue(tSel);
         sSel.value = sDefault.base || firstEnabledValue(sSel);
 
-        renderQuantButtons("translator", tDefault.quant || "q8");
-        renderQuantButtons("summarizer", sDefault.quant || "q8");
+        renderQuantButtons("translator", tDefault.quant || DEFAULT_QUANT);
+        renderQuantButtons("summarizer", sDefault.quant || DEFAULT_QUANT);
 
-        tSel.onchange = () => renderQuantButtons("translator", "q8");
-        sSel.onchange = () => renderQuantButtons("summarizer", "q8");
+        tSel.onchange = () => renderQuantButtons("translator", DEFAULT_QUANT);
+        sSel.onchange = () => renderQuantButtons("summarizer", DEFAULT_QUANT);
     } catch (e) { }
 }
 
@@ -683,7 +703,7 @@ themeBtn.onclick = () => {
 };
 
 /* ---------------------------------------------------
- * 7. 打字機效果 + highlight
+ * 7. 打字機效果
  * --------------------------------------------------*/
 function typeShow(el, text, done) {
     el.textContent = '';
@@ -691,10 +711,9 @@ function typeShow(el, text, done) {
     let i = 0;
     function loop() {
         el.textContent += text.slice(i, i + 5);
-        if (i % 50 === 0) highlight(el.textContent);
         i += 5;
         if (i < text.length) setTimeout(loop, 10);
-        else { highlight(text); if (done) done(); }
+        else { if (done) done(); }
     }
     loop();
 }
@@ -705,9 +724,16 @@ let progressStatusText = "準備推論";
 let progressStatusUpdatedAt = 0;
 let progressStatusAnimating = false;
 let progressStatusPending = "";
+let progressMode = "inference";
 const PROGRESS_STATUS_COOLDOWN_MS = 900;
 
 function progressStatusFor(value) {
+    if (progressMode === "warmup") {
+        if (value < 16) return "檢查目前載入模型";
+        if (value < 34) return "卸載舊模型";
+        if (value < 92) return "載入目前選取模型";
+        return "模型預熱完成";
+    }
     if (value < 14) return "送出報告與模型設定";
     if (value < 42) return "翻譯模型推論中";
     if (value < 86) return "摘要模型推論中";
@@ -828,10 +854,11 @@ function centerProgressPanel(panel) {
     }, 180);
 }
 
-function startProgress() {
+function startProgress(initialStatus = "準備推論", mode = "inference") {
     const panel = document.getElementById('progressPanel');
     const resultsGrid = document.getElementById('resultsGrid');
     stopProgressTimer();
+    progressMode = mode;
     progressValue = 3;
     progressStatusText = "";
     progressStatusUpdatedAt = 0;
@@ -843,7 +870,7 @@ function startProgress() {
         centerProgressPanel(panel);
     }
     if (resultsGrid) resultsGrid.classList.add('is-waiting');
-    setProgress(progressValue, "準備推論", true);
+    setProgress(progressValue, initialStatus, true);
 
     progressTimer = setInterval(() => {
         const ceiling = 92;
@@ -892,6 +919,7 @@ function resetProgress() {
     progressStatusUpdatedAt = 0;
     progressStatusAnimating = false;
     progressStatusPending = "";
+    progressMode = "inference";
     setProgress(0, "準備推論", true);
     if (panel) {
         panel.hidden = true;
@@ -942,12 +970,19 @@ const AI_PART_LABELS = {
     RA: '右心房',
     LV: '左心室',
     RV: '右心室',
+    MV: '二尖瓣',
+    TV: '三尖瓣',
 };
 
 const AI_CONDITION_LABELS = {
     dilatation: '擴大',
     hypertrophy: '肥厚',
+    stenosis: '狹窄',
+    regurgitation: '逆流',
     pressure_elevation: '壓力升高',
+    dysfunction: '功能異常',
+    hypokinesia: '運動減弱',
+    aneurysm: '動脈瘤',
 };
 
 function applyImageResult(result) {
@@ -1035,8 +1070,48 @@ if (generateTestImageBtn) generateTestImageBtn.onclick = generateTestAiImage;
 
 
 /* ---------------------------------------------------
- * 8. Pipeline 按鈕
+ * 8. 模型預熱與 Pipeline 按鈕
  * --------------------------------------------------*/
+const warmupBtn = document.getElementById('btn-warmup');
+if (warmupBtn) {
+    warmupBtn.onclick = async () => {
+        const btn = warmupBtn;
+        const analyzeBtn = document.getElementById('btn-pipeline');
+        btn.disabled = true;
+        btn.textContent = '預熱中';
+        if (analyzeBtn) analyzeBtn.disabled = true;
+        startProgress('準備預熱模型', 'warmup');
+        setStreamingPhaseProgress(6, '準備預熱模型');
+
+        try {
+            await apiStream('/models/warmup_stream', {
+                translator_model: selectedModelTag("translator"),
+                summarizer_model: selectedModelTag("summarizer"),
+            }, (event) => {
+                if (event.event === 'phase_start' || event.event === 'status') {
+                    setStreamingPhaseProgress(event.progress || progressValue, event.label || '模型預熱中');
+                    return;
+                }
+                if (event.event === 'done') {
+                    setStreamingPhaseProgress(100, event.label || '模型預熱完成');
+                    return;
+                }
+            });
+
+            finishProgress(() => {
+                btn.disabled = false;
+                btn.textContent = '預熱模型';
+                if (analyzeBtn) analyzeBtn.disabled = false;
+            });
+        } catch (e) {
+            failProgress(e.message || '模型預熱失敗');
+            btn.disabled = false;
+            btn.textContent = '預熱模型';
+            if (analyzeBtn) analyzeBtn.disabled = false;
+        }
+    };
+}
+
 document.getElementById('btn-pipeline').onclick = async () => {
     const src = document.getElementById('src').value.trim();
     if (!src) return alert('請輸入報告內容');
@@ -1060,7 +1135,7 @@ document.getElementById('btn-pipeline').onclick = async () => {
     setImageStatus('等待分析結果');
     setGenerateImageEnabled(false);
     renderImagePrompt('');
-    document.querySelectorAll('.callout-group').forEach(g => g.classList.remove('active'));
+    clearStructuredHighlights();
     btn.disabled = true;
     btn.textContent = '推論中';
     startProgress();
@@ -1110,8 +1185,6 @@ document.getElementById('btn-pipeline').onclick = async () => {
                     latestSummaryText = summary;
                     elS.textContent = summary;
                 }
-                highlight(`${translation}
-${summary}`);
                 return;
             }
 
@@ -1143,8 +1216,6 @@ ${summary}`);
                     if (structuredData) highlightStructuredData(structuredData);
                     return;
                 }
-                highlight(`${translation}
-${summary}`);
                 return;
             }
 
@@ -1165,8 +1236,7 @@ ${summary}`);
 
         finishProgress(() => {
             if (structuredData) highlightStructuredData(structuredData);
-            else highlight(`${translation}
-${summary}`);
+            else clearStructuredHighlights();
             btn.disabled = false;
             btn.textContent = '開始分析';
         });
@@ -1184,11 +1254,10 @@ ${summary}`);
  * --------------------------------------------------*/
 document.getElementById('btn-clear').onclick = () => {
     resetProgress();
-    resetHeartFeedback();
+    clearStructuredHighlights();
     document.getElementById('src').value = '';
     document.getElementById('trans').textContent = '';
     document.getElementById('sum').textContent = '';
-    document.querySelectorAll('.callout-group').forEach(g => g.classList.remove('active'));
     renderStructuredJson(null, '等待解析');
     latestStructuredData = null;
     latestSummaryText = '';
@@ -1203,7 +1272,12 @@ document.getElementById('btn-clear').onclick = () => {
 };
 document.getElementById('logout').onclick = async () => {
     await api('/logout', {});
-    location.reload();
+    try {
+        sessionStorage.setItem('cardiollm_force_login_top', '1');
+        if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+    } catch (e) {}
+    window.scrollTo(0, 0);
+    location.replace('/');
 };
 
 init();

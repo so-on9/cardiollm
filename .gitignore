@@ -29,6 +29,8 @@ Thumbs.db
 .cache/
 .nv/
 .triton/
+node_modules/
+.artifacts/
 .pytest_cache/
 .mypy_cache/
 
@@ -50,6 +52,7 @@ ollama_store/
 # Local handoff / writing notes
 *PAPER_HANDOFF.md
 safety.md
+refer/
 
 # Runtime generated images
 proxy/static/generated/

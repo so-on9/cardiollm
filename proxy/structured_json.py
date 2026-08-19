@@ -1,6 +1,9 @@
 # Structured findings extraction helpers for CardioLLM.
 import json
+import os
 import re
+
+from terminology import build_terminology_context
 
 
 PART_LABELS = {
@@ -41,6 +44,9 @@ STRUCTURED_FINDINGS_PROMPT_TEMPLATE = """### Instruction:
 8. status 僅限：present, absent, uncertain。
 9. confidence 介於 0 到 1。
 10. measurements 僅放重要且原文/翻譯有明確數值的項目，例如 LVEF, LVIDd, LA size, PASP, TRPG, E/E'。
+11. 若下方 Terminology RAG 有命中術語，請用其標準中文與限制規則；Terminology RAG 不是原文，不可當成報告 finding；尤其 measurement 類術語不可自行升級成診斷。
+
+{terminology_context}
 
 請輸出格式：
 {
@@ -86,8 +92,23 @@ STRUCTURED_FINDINGS_PROMPT_TEMPLATE = """### Instruction:
 
 
 def build_structured_findings_prompt(source_text: str, translation_text: str, summary_text: str) -> str:
+    terminology_context = ""
+    if os.environ.get("TERM_RAG_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        terminology_context = build_terminology_context(
+            source_text or "",
+            translation_text or "",
+            summary_text or "",
+            max_terms=14,
+        )
+        if terminology_context:
+            terminology_context = (
+                "### Terminology RAG / 字庫約束（非原文，不可輸出）:\n"
+                "以下內容只作為術語標準化與安全限制；請勿把本段當成報告 finding。\n"
+                + terminology_context
+            )
     return (
         STRUCTURED_FINDINGS_PROMPT_TEMPLATE
+        .replace("{terminology_context}", terminology_context)
         .replace("{source_text}", (source_text or "").strip())
         .replace("{translation_text}", (translation_text or "").strip())
         .replace("{summary_text}", (summary_text or "").strip())
@@ -306,4 +327,3 @@ def normalize_structured_findings(data: dict, fallback_summary: str = "") -> dic
         "has_abnormality": bool(overall.get("has_abnormality", bool(normalized["findings"]))),
     }
     return normalized
-

@@ -1,7 +1,10 @@
 # Prompt templates and LLM text post-processing helpers for CardioLLM.
 from __future__ import annotations
 
+import os
 import re
+
+from terminology import apply_term_replacements, build_terminology_context
 
 
 ECHO_POLICY_PROMPT_TEXT = (
@@ -9,7 +12,7 @@ ECHO_POLICY_PROMPT_TEXT = (
     "1. 原文若寫 suggest/suspicious/R/O/possible，中文必須保留「提示、懷疑、疑似、可能」等不確定語氣，不可改成確診語氣。"
     "2. `SUGGEST PULMONARY HYPERTENSION` 應翻成「提示/懷疑肺高壓」，不可自行升級成「有重度肺高壓」。"
     "3. `TR WITH PEAK/MEAN SYSTOLIC PG/PRESSURE GRADIENT` 應保守寫成「三尖瓣逆流訊號之峰值/平均收縮期壓差」，不可直接改寫成「肺動脈收縮壓峰值/平均值」。"
-    "4. `RA AREA` 是右心房大小指標，可寫「右心房面積...符合右心房擴大」，不可寫成右心功能異常。"
+    "4. `RA AREA` 只翻成「右心房面積」並保留數值，不可自行補成「右心房擴大」或右心功能異常，除非原文另有 chamber dilatation/enlargement 等明確描述。"
     "5. `TAPSE` 是右心室縱向收縮功能指標；若需解釋，只能寫「提示右心室縱向收縮功能偏低/保留」，不可單靠 TAPSE 推論整體右心功能或病情嚴重度。"
     "6. `LVEF 50-54%` 應優先使用「邊緣偏低/低正常」等保守語氣，不宜直接寫成明確收縮功能障礙。"
     "7. 術後瓣膜若仍有逆流，不可只因跨瓣壓差低就寫成瓣膜功能尚可；需同時保留逆流嚴重度。"
@@ -204,6 +207,67 @@ def normalize_complete_summary_headings(summary: str) -> str:
     return "\n".join(normalized_lines).strip()
 
 
+def _summary_repeat_key(text: str) -> str:
+    return re.sub(r"[\s，,。；;：:、.．]+", "", (text or "").strip())
+
+
+def has_summary_loop_tail(text: str) -> bool:
+    key_text = _summary_repeat_key(text)
+    if len(key_text) < 240:
+        return False
+
+    tail = key_text[-720:]
+    for size in (36, 48, 64, 96, 128, 160):
+        if len(tail) < size * 3:
+            continue
+        last = tail[-size:]
+        prev = tail[-size * 2 : -size]
+        prev2 = tail[-size * 3 : -size * 2]
+        if last == prev and len(last) >= 36:
+            return True
+        if last == prev == prev2 and len(last) >= 24:
+            return True
+
+    lines = [_summary_repeat_key(line) for line in text.splitlines() if _summary_repeat_key(line)]
+    recent = [line for line in lines[-10:] if len(line) >= 8]
+    return any(recent.count(line) >= 3 for line in set(recent))
+
+
+def trim_summary_repetitions(text: str) -> str:
+    if not text:
+        return text
+
+    def key(line: str) -> str:
+        return _summary_repeat_key(line)
+
+    lines = [line.rstrip() for line in text.splitlines()]
+
+    compact: list[str] = []
+    last_key = ""
+    for line in lines:
+        current_key = key(line)
+        if current_key and current_key == last_key and len(current_key) >= 8:
+            continue
+        compact.append(line)
+        if current_key:
+            last_key = current_key
+
+    lines = compact
+    for block_size in range(1, 9):
+        changed = True
+        while changed and len(lines) >= block_size * 2:
+            changed = False
+            last = lines[-block_size:]
+            prev = lines[-block_size * 2:-block_size]
+            last_key = "".join(key(line) for line in last)
+            prev_key = "".join(key(line) for line in prev)
+            if last_key and last_key == prev_key and len(last_key) >= 24:
+                del lines[-block_size:]
+                changed = True
+
+    return "\n".join(lines).strip()
+
+
 def collapse_repeated_lines_within_sections(summary: str) -> str:
     output: list[str] = []
     seen_in_section: set[str] = set()
@@ -240,7 +304,8 @@ def finalize_complete_summary(source: str, summary: str) -> str:
     # Keep complete-summary output close to the training/evaluation prompt distribution.
     # Only remove source-check appendices and exact duplicate lines inside the same section.
     summary = strip_source_check_section(summary)
-    return collapse_duplicate_lines_within_sections(summary)
+    summary = collapse_duplicate_lines_within_sections(summary)
+    return trim_summary_repetitions(summary)
 
 
 SUMMARY_ANATOMY_TERMS = (
@@ -436,20 +501,52 @@ def untag_translated_lines(text: str) -> str:
     return "\n".join(lines)
 
 
-TERM_MAP = {
-    "連枷樣運動": "飄動樣運動",
-    "連枷樣": "飄動樣",
-    "連枷運動": "飄動運動",
-    "連枷": "飄動",
-}
+def env_flag(name: str, default: str = "false") -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def term_rag_enabled() -> bool:
+    return env_flag("TERM_RAG_ENABLED")
+
+
+def summary_rag_enabled() -> bool:
+    return env_flag("SUMMARY_RAG_ENABLED")
+
+
+def build_term_rag_block(text: str, glossary=None, max_terms: int = 14, enabled: bool | None = None) -> str:
+    if enabled is None:
+        enabled = term_rag_enabled()
+    if not enabled:
+        return ""
+    lines: list[str] = []
+    term_context = build_terminology_context(text or "", max_terms=max_terms)
+    if term_context:
+        lines.append(term_context)
+    if glossary:
+        manual = []
+        for pair in glossary:
+            src = getattr(pair, "src", "")
+            tgt = getattr(pair, "tgt", "")
+            if src and tgt:
+                manual.append(f"- User glossary: {src} -> {tgt}")
+        if manual:
+            lines.append("User-provided glossary:\n" + "\n".join(manual))
+    if not lines:
+        return ""
+    return (
+        "\n\n### Terminology RAG / 字庫約束（非原文，不可翻譯或輸出）:\n"
+        "以下內容只作為術語標準化與安全限制；請勿把本段當成報告內容。\n"
+        + "\n".join(lines)
+        + "\n"
+    )
+
+
+def build_summary_term_rag_block(text: str) -> str:
+    return build_term_rag_block(text, max_terms=10, enabled=summary_rag_enabled())
 
 
 def apply_term_map(text: str) -> str:
-    if not text:
-        return text
-    for src, tgt in TERM_MAP.items():
-        text = text.replace(src, tgt)
-    return text
+    return apply_term_replacements(text)
 
 
 
@@ -458,6 +555,7 @@ def build_mistral_v01_translate_prompt(req) -> str:
         "請將以下心臟超音波報告逐行翻譯為臨床風格的繁體中文，"
         "保持原文順序、數值、單位、嚴重度與解剖位置，不可摘要、不可新增推論。"
     )
+    instruction += build_term_rag_block(req.source or "", getattr(req, "glossary", None))
     body = req.source or ""
     return mistral_inst_prompt(instruction, body)
 
@@ -470,6 +568,7 @@ def build_mistral_v01_summary_prompt(req: SummarizeReq) -> str:
         "3. 綜合臨床建議與後續追蹤建議。\n"
         "請不要逐字重述原始報告，不要重複同一段內容兩次，也不要加入醫師姓名或與報告無關的資訊。"
     )
+    instruction += build_summary_term_rag_block(req.source or "")
     body = req.source or ""
     return mistral_inst_prompt(instruction, body)
 
@@ -479,12 +578,13 @@ def build_legacy_translate_prompt(req: TranslateReq) -> str:
         "請將以下心臟超音波報告翻譯為臨床風格的繁體中文，並保持語氣一致且不加入推論。"
     )
     body = req.source.strip()
+    term_block = build_term_rag_block(req.source, getattr(req, "glossary", None))
 
     return (
         "Below is an instruction that describes a task, paired with an input that provides further context. "
         "Write a response that appropriately completes the request.\n\n"
         "### Instruction:\n"
-        f"{instruction}\n\n"
+        f"{instruction}{term_block}\n\n"
         "### Input:\n"
         f"{body}\n\n"
         "### Response:\n"
@@ -497,18 +597,91 @@ def build_strict_translate_prompt(req: TranslateReq) -> str:
         f"{BASELINE150_LEGACY_TRANSLATION_SUFFIX}"
     )
     body = req.source.strip()
+    term_block = build_term_rag_block(req.source, getattr(req, "glossary", None))
 
     return (
         "### Instruction:\n"
-        f"{instruction}\n\n"
+        f"{instruction}{term_block}\n\n"
         "### Input:\n"
         f"{body}\n\n"
         "### Response:\n"
     )
 
 
+def build_translategemma_translate_prompt(req: TranslateReq) -> str:
+    instruction = (
+        "請將以下心臟超音波報告翻譯為臨床風格的繁體中文，並保持語氣一致且不加入推論。"
+        f"{BASELINE150_LEGACY_TRANSLATION_SUFFIX}"
+    )
+    user_text = (
+        f"任務：{instruction}{build_term_rag_block(req.source, getattr(req, 'glossary', None))}\n\n"
+        "請只輸出繁體中文譯文，不要加入說明、標題或摘要。\n\n"
+        "英文心臟超音波報告：\n"
+        f"{req.source.strip()}"
+    )
+
+    return (
+        "<start_of_turn>user\n"
+        "You are a professional English (en) to Chinese (zh-TW) translator. "
+        "Your goal is to accurately convey the meaning and nuances of the original English text "
+        "while adhering to Chinese grammar, vocabulary, and cultural sensitivities.\n"
+        "Produce only the Chinese translation, without any additional explanations or commentary. "
+        "Please translate the following English text into Chinese:\n\n\n"
+        f"{user_text}"
+        "<end_of_turn>\n"
+        "<start_of_turn>model\n"
+    )
+
+
+MINISTRAL3_TRANSLATION_SYSTEM_PROMPT = (
+    "You are a professional English-to-Traditional-Chinese medical translator. "
+    "Translate echocardiography reports faithfully. Keep every number, unit, "
+    "severity, anatomy term, uncertainty marker, and original finding. Do not "
+    "summarize, infer, explain, or add diagnoses that are not present."
+)
+
+
+MINISTRAL3_SUMMARY_SYSTEM_PROMPT = (
+    "You are a professional cardiology assistant. "
+    "Generate faithful Traditional-Chinese echocardiography clinical summaries. "
+    "Preserve every important number, unit, severity, anatomy term, valve finding, "
+    "chamber size, functional assessment, pressure gradient, and source-supported conclusion. "
+    "Do not invent unsupported diagnoses, values, treatments, or patient-specific instructions."
+)
+
+
+def build_ministral3_translate_prompt(req: TranslateReq) -> str:
+    instruction = (
+        "請將以下心臟超音波報告翻譯為臨床風格的繁體中文，並保持語氣一致且不加入推論。"
+        f"{BASELINE150_LEGACY_TRANSLATION_SUFFIX}"
+    )
+    user_text = (
+        f"任務：{instruction}{build_term_rag_block(req.source, getattr(req, 'glossary', None))}\n\n"
+        "請只輸出繁體中文譯文，不要加入說明、標題或摘要。\n\n"
+        "英文心臟超音波報告：\n"
+        f"{req.source.strip()}"
+    )
+    return (
+        "<s>[SYSTEM_PROMPT]"
+        f"{MINISTRAL3_TRANSLATION_SYSTEM_PROMPT}"
+        "[/SYSTEM_PROMPT][INST]"
+        f"{user_text}"
+        "[/INST]"
+    )
+
+
+def preserves_translation_linebreaks(model_name: str) -> bool:
+    return "ministral3-3b-instruct-translator" in (model_name or "").lower()
+
+
 def build_translate_prompt(req: TranslateReq, model_name: str) -> str:
     model_name = model_name or ""
+    model_name_lower = model_name.lower()
+    if "translategemma-4b-it" in model_name_lower:
+        return build_translategemma_translate_prompt(req)
+    if "ministral3-3b-instruct-translator" in model_name_lower:
+        return build_ministral3_translate_prompt(req)
+
     # The deployed "LLaMA 3.2 Instruct" option maps to translator-legacy-v3-cp140.
     # Keep cp140 inference aligned with the baseline150-legacy-v3 training prompt;
     # baseline150 Base150 also uses this stricter report-translation prompt.
@@ -516,6 +689,7 @@ def build_translate_prompt(req: TranslateReq, model_name: str) -> str:
         "llama-3.2-3b-instruct-translator-deploy" in model_name
         or "llama-3.2-3b-instruct-translator-legacy-v3-cp140" in model_name
         or "llama-3.2-3b-instruct-translator-baseline150" in model_name
+        or "ministral3-3b-instruct-translator-cp220" in model_name_lower
     ):
         return build_strict_translate_prompt(req)
     return build_legacy_translate_prompt(req)
@@ -565,6 +739,7 @@ SUMMARY_REVISION_PROMPT_TEMPLATE = """### Instruction:
 5. 不要限制總句數；只要資訊有臨床重要性或包含原文數字，就應保留。
 6. 不要輸出「原文資訊核對」、「未自然涵蓋的數字」、「資訊對照」或任何缺漏清單小節；若發現缺漏，請直接補回對應的臨床摘要正文段落。
 7. {echo_policy}
+{term_block}
 
 ### Input:
 原文：
@@ -593,7 +768,7 @@ def build_llama_summary_prompt(req: SummarizeReq, model_name: str = "") -> str:
 
     return (
         "### Instruction:\n"
-        f"{instruction}\n\n"
+        f"{instruction}{build_summary_term_rag_block(req.source)}\n\n"
         "### Input:\n"
         f"{req.source.strip()}\n\n"
         "### Response:\n"
@@ -605,9 +780,29 @@ def build_summary_revision_prompt(input_text: str, draft_text: str) -> str:
         input_text=input_text.strip(),
         draft_text=draft_text.strip(),
         echo_policy=ECHO_POLICY_PROMPT_TEXT,
+        term_block=build_summary_term_rag_block(input_text + "\n" + draft_text),
     )
 
 
+def build_translategemma_summary_prompt(req: SummarizeReq, model_name: str = "") -> str:
+    user_text = build_llama_summary_prompt(req, model_name).strip()
+    return (
+        "<start_of_turn>user\n"
+        f"{user_text}"
+        "<end_of_turn>\n"
+        "<start_of_turn>model\n"
+    )
+
+
+def build_ministral3_summary_prompt(req: SummarizeReq, model_name: str = "") -> str:
+    user_text = build_llama_summary_prompt(req, model_name).strip()
+    return (
+        "<s>[SYSTEM_PROMPT]"
+        f"{MINISTRAL3_SUMMARY_SYSTEM_PROMPT}"
+        "[/SYSTEM_PROMPT][INST]"
+        f"{user_text}"
+        "[/INST]"
+    )
 
 
 def uses_complete_clinical_summary_model(model_name: str) -> bool:
@@ -615,13 +810,32 @@ def uses_complete_clinical_summary_model(model_name: str) -> bool:
     return (
         "llama-3.2-3b-instruct-summarizer-clinical-v4" in model_name
         or "llama-3.2-3b-instruct-summarizer-complete-clinical-v5" in model_name
+        or "translategemma-4b-it-summary-complete-explanation" in model_name
+        or "translategemma-4b-it-summarizer-complete-explanation" in model_name
+        or "ministral3-3b-instruct-summarizer-complete-explanation" in model_name
     )
 
+def preserves_model_summary_format(model_name: str) -> bool:
+    model_name = (model_name or "").lower()
+    return (
+        "translategemma-4b-it" in model_name
+        or "ministral3-3b-instruct-summarizer" in model_name
+    )
+
+
 def uses_summary_revision(model_name: str) -> bool:
+    if preserves_model_summary_format(model_name):
+        return False
     return uses_complete_clinical_summary_model(model_name)
 
 
 def build_summary_prompt(req: SummarizeReq, model_name: str = "") -> str:
+    model_name_lower = (model_name or "").lower()
+    if "translategemma-4b-it" in model_name_lower:
+        return build_translategemma_summary_prompt(req, model_name)
+    if "ministral3-3b-instruct-summarizer" in model_name_lower:
+        return build_ministral3_summary_prompt(req, model_name)
+
     if uses_complete_clinical_summary_model(model_name):
         return build_llama_summary_prompt(req, model_name)
 
@@ -643,9 +857,10 @@ def build_summary_prompt(req: SummarizeReq, model_name: str = "") -> str:
         "2. 主要異常發現\n"
         "3. 臨床建議或解釋\n\n"
         f"{tone_prompt}\n\n"
+        f"{build_summary_term_rag_block(req.source)}"
         "=== 心臟超音波報告 ===\n"
-        f"{req.source.strip()}\n"
-        "=== 結束 ==="
+        f"{req.source.strip()}"
+        "\n=== 結束 ==="
     )
 
 
@@ -671,7 +886,7 @@ def build_mistral_translate_prompt(english_text: str, tone: str = "Clinical") ->
         )
     else:
         tone_hint = ""
-    return f"{base}{tone_hint}=== English report ===\n{english_text.strip()}\n=== End ===\n"
+    return f"{base}{tone_hint}{build_term_rag_block(english_text)}=== English report ===\n{english_text.strip()}\n=== End ===\n"
 
 
 def build_mistral_summary_prompt(chinese_text: str, style: str = "Clinical") -> str:
@@ -689,4 +904,4 @@ def build_mistral_summary_prompt(chinese_text: str, style: str = "Clinical") -> 
         style_hint = "- Explain findings in plain language for patient understanding.\n- Simplify medical terms while keeping accuracy.\n"
     else:
         style_hint = ""
-    return f"{base}{style_hint}\n\n=== 心臟超音波報告 ===\n{chinese_text.strip()}\n=== 結束 ===\nPlease output only the structured summary text.\n"
+    return f"{base}{style_hint}\n\n{build_summary_term_rag_block(chinese_text)}=== 心臟超音波報告 ===\n{chinese_text.strip()}\n=== 結束 ===\nPlease output only the structured summary text.\n"
