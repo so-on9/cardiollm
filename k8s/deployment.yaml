@@ -5,6 +5,8 @@ metadata:
   namespace: cardiollm
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
   selector:
     matchLabels:
       app: cardiollm-proxy
@@ -13,10 +15,24 @@ spec:
       labels:
         app: cardiollm-proxy
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: proxy
           image: cardiollm-k8s:latest
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8000
           envFrom:
@@ -30,12 +46,27 @@ spec:
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 15
+            timeoutSeconds: 4
+            failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /api/health/ollama
+              path: /healthz
               port: 8000
             initialDelaySeconds: 10
             periodSeconds: 15
+            timeoutSeconds: 4
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 3
+            failureThreshold: 20
+          volumeMounts:
+            - name: generated-images
+              mountPath: /app/static/generated
+            - name: temporary-files
+              mountPath: /tmp
           resources:
             requests:
               cpu: "100m"
@@ -43,3 +74,8 @@ spec:
             limits:
               cpu: "1"
               memory: "1Gi"
+      volumes:
+        - name: generated-images
+          emptyDir: {}
+        - name: temporary-files
+          emptyDir: {}

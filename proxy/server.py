@@ -1,180 +1,92 @@
 # server.py — Cardio Dual-Model (Final Fixed: Correct Coordinates)
 from fastapi import FastAPI, HTTPException, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
-import os, re, requests, time, hmac, hashlib, base64, json
+from collections import defaultdict, deque
+from threading import Lock
+from urllib.parse import urlsplit
+import logging
+import os, requests, time, hmac, hashlib, base64, json
+
+from prompts import (
+    apply_term_map,
+    build_mistral_summary_prompt,
+    build_mistral_translate_prompt,
+    build_mistral_v01_summary_prompt,
+    build_mistral_v01_translate_prompt,
+    build_summary_prompt,
+    build_summary_revision_prompt,
+    build_translate_prompt,
+    dedup_summary_lines,
+    extract_nums_units,
+    finalize_complete_summary,
+    has_summary_loop_tail,
+    preserves_model_summary_format,
+    preserves_translation_linebreaks,
+    strip_model_header,
+    trim_summary_repetitions,
+    untag_translated_lines,
+    uses_complete_clinical_summary_model,
+    uses_summary_revision,
+)
+
+from image_generation import ImageGenerateReq, generate_image
+from structured_json import (
+    build_structured_findings_prompt,
+    extract_json_object,
+    normalize_structured_findings,
+    rule_based_structured_findings,
+)
+from terminology import apply_translation_term_audit, standardize_summary_terms
 
 # -------------------------------------------------------------------------
 #  Backend
 # -------------------------------------------------------------------------
 
 
-def strip_model_header(text: str) -> str:
-    if not text:
-        return text
-    t = text.lstrip()
-    m = re.search(r"[\u4e00-\u9fff]", t)
-    if m:
-        return t[m.start() :]
-    return t
-
-
-def dedup_summary_lines(text: str) -> str:
-    seen = set()
-    result_lines = []
-    for line in text.splitlines():
-        line_stripped = line.rstrip()
-        if not line_stripped:
-            result_lines.append(line)
-            continue
-        if line_stripped in seen:
-            continue
-        seen.add(line_stripped)
-        result_lines.append(line)
-    return "\n".join(result_lines).strip()
-
-
-SUMMARY_ANATOMY_TERMS = (
-    "左心房", "右心房", "左心室", "右心室",
-    "主動脈根部", "升主動脈", "主動脈瓣", "主動脈",
-    "肺動脈主幹", "肺動脈幹", "肺動脈瓣", "肺動脈",
-    "肺循環", "右心壓力", "右心",
-    "二尖瓣", "三尖瓣", "心包腔", "心包膜",
-    "室間隔", "心室中隔", "心尖", "下壁", "側壁", "外側壁",
-)
-
-UNSUPPORTED_CLAIM_TERMS = (
-    "正常", "無顯著", "未見", "無明顯", "沒有明顯",
-    "狹窄", "肺高壓", "肺動脈高壓", "壁運動正常",
-    "壓力升高", "壓力上升", "可能與",
-)
-
-
-def remove_extra_numbers_from_line(line: str, allowed_numbers: set[str]) -> str:
-    cleaned = line
-    for raw in NUM_VALUE_RE.findall(line):
-        try:
-            key = f"{float(raw):g}"
-        except Exception:
-            key = raw
-        if key in allowed_numbers:
-            continue
-        pattern = rf"\s*[:：]?\s*{re.escape(raw)}\s*(?:cm|mm|公分|毫米|毫米汞柱|%|％)?"
-        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    cleaned = re.sub(r"[：:，,、；;]\s*$", "", cleaned).strip()
-    return cleaned
-
-
-def sanitize_summary_against_source(source: str, summary: str) -> str:
-    if not source or not summary:
-        return summary
-
-    source_norm = source.lower()
-    allowed_numbers = extract_nums_units(source)
-    kept_lines: list[str] = []
-
-    for line in summary.splitlines():
-        raw = line.strip()
-        if not raw:
-            if kept_lines and kept_lines[-1]:
-                kept_lines.append("")
-            continue
-
-        is_heading = raw.startswith("【") or bool(re.match(r"^[一二三四五六七八九十]+[、.．]", raw))
-        if is_heading:
-            kept_lines.append(raw)
-            continue
-
-        cleaned = remove_extra_numbers_from_line(raw, allowed_numbers)
-        if not cleaned:
-            continue
-
-        cleaned_norm = cleaned.lower()
-        unsupported_anatomy = [
-            term for term in SUMMARY_ANATOMY_TERMS
-            if term in cleaned and term not in source
-        ]
-        unsupported_claim = [
-            term for term in UNSUPPORTED_CLAIM_TERMS
-            if term in cleaned and term not in source
-        ]
-
-        if unsupported_anatomy or unsupported_claim:
-            continue
-
-        kept_lines.append(cleaned)
-
-    # Remove headings that ended up with no content beneath them.
-    compact: list[str] = []
-    for idx, line in enumerate(kept_lines):
-        if not line:
-            continue
-        is_heading = line.startswith("【") or bool(re.match(r"^[一二三四五六七八九十]+[、.．]", line))
-        if is_heading:
-            has_content = any(
-                next_line
-                and not next_line.startswith("【")
-                and not re.match(r"^[一二三四五六七八九十]+[、.．]", next_line)
-                for next_line in kept_lines[idx + 1 :]
-            )
-            if not has_content:
-                continue
-        compact.append(line)
-
-    return "\n".join(compact).strip() or summary
-
-
-def mistral_inst_prompt(instruction: str, body: str) -> str:
-    return f"<s>[INST] {instruction.strip()}\n{body.strip()} [/INST]"
 
 
 # --------- Config / Secrets ---------
-API_KEY = os.environ.get("API_KEY", "devkey")
-UI_PASSWORD = os.environ.get("UI_PASSWORD", "changeme")
+API_KEY = os.environ.get("API_KEY", "")
+UI_PASSWORD = os.environ.get("UI_PASSWORD", "")
 SESSION_HOURS = int(os.environ.get("SESSION_HOURS", "8"))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"
+DOCS_ENABLED = os.environ.get("DOCS_ENABLED", "false").lower() == "true"
+LOGIN_MAX_FAILURES = max(3, int(os.environ.get("LOGIN_MAX_FAILURES", "6")))
+LOGIN_WINDOW_SECONDS = max(60, int(os.environ.get("LOGIN_WINDOW_SECONDS", "900")))
+LOGIN_BLOCK_SECONDS = max(60, int(os.environ.get("LOGIN_BLOCK_SECONDS", "900")))
 OLLAMA_URL = (
-    os.environ.get("OLLAMA_BASE_URL")
-    or os.environ.get("OLLAMA_URL")
-    or "http://replace-with-protected-ollama-host:30678"
+    os.environ.get("OLLAMA_URL")
+    or os.environ.get("OLLAMA_BASE_URL")
+    or "http://localhost:11434"
 )
-MODEL_TRANS_DEFAULT = os.environ.get(
-    "OLLAMA_TRANS_MODEL",
-    "llama-3.2-3b-instruct-translator-baseline150:q8",
-)
-MODEL_SUM_DEFAULT = os.environ.get(
-    "OLLAMA_SUM_MODEL",
-    "llama-3.2-3b-instruct-summarizer-clinical-v4:q5",
-)
+MODEL_TRANS_DEFAULT = os.environ.get("OLLAMA_TRANS_MODEL", "cardio-translator")
+MODEL_SUM_DEFAULT = os.environ.get("OLLAMA_SUM_MODEL", "cardio-summarizer")
 KEEP_ALIVE = os.environ.get("KEEP_ALIVE", "3h")
-SUMMARY_REVISION_MODEL_MARKER = os.environ.get(
-    "SUMMARY_REVISION_MODEL_MARKER",
-    "summarizer-clinical-v4",
-)
-FALLBACK_MODEL_NAMES = sorted(
-    {
-        MODEL_TRANS_DEFAULT,
-        MODEL_TRANS_DEFAULT.rsplit(":", 1)[0] + ":q4",
-        MODEL_TRANS_DEFAULT.rsplit(":", 1)[0] + ":q5",
-        MODEL_TRANS_DEFAULT.rsplit(":", 1)[0] + ":q8",
-        MODEL_SUM_DEFAULT,
-        MODEL_SUM_DEFAULT.rsplit(":", 1)[0] + ":q4",
-        MODEL_SUM_DEFAULT.rsplit(":", 1)[0] + ":q5",
-        MODEL_SUM_DEFAULT.rsplit(":", 1)[0] + ":q8",
-    }
-)
+LLAMA_COMPLETE_SUMMARY_MAX_TOKENS = int(os.environ.get("LLAMA_COMPLETE_SUMMARY_MAX_TOKENS", "1280"))
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.environ.get("CORS_ORIGINS", "").split(",")
     if origin.strip()
 ]
 
-app = FastAPI(title="Cardio Dual-Model")
+logger = logging.getLogger("cardiollm.security")
+
+if COOKIE_SECURE and (API_KEY in {"", "devkey"} or UI_PASSWORD in {"", "changeme"}):
+    raise RuntimeError("Production HTTPS mode requires non-default API_KEY and UI_PASSWORD values")
+if API_KEY in {"", "devkey"} or UI_PASSWORD in {"", "changeme"}:
+    logger.warning("CardioLLM is using development authentication credentials")
+
+app = FastAPI(
+    title="Cardio Dual-Model",
+    docs_url="/docs" if DOCS_ENABLED else None,
+    redoc_url="/redoc" if DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if DOCS_ENABLED else None,
+)
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
@@ -187,7 +99,11 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
-COOKIE_NAME = "cardio_sess"
+COOKIE_NAME = "__Host-cardio_sess" if COOKIE_SECURE else "cardio_sess"
+LEGACY_COOKIE_NAME = "cardio_sess"
+LOGIN_FAILURES: dict[str, deque[float]] = defaultdict(deque)
+LOGIN_BLOCKED_UNTIL: dict[str, float] = {}
+LOGIN_RATE_LOCK = Lock()
 
 
 def sign(payload: bytes) -> str:
@@ -224,123 +140,120 @@ def auth_ok(request: Request, x_api_key: str | None) -> bool:
     return False
 
 
-NUM_VALUE_RE = re.compile(r"\d+(?:\.\d+)?")
-
-
-def extract_nums_units(text: str) -> set[str]:
-    nums: set[str] = set()
-    if not text:
-        return nums
-    for m in NUM_VALUE_RE.finditer(text):
-        start = m.start()
-        raw = m.group(0)
-        if start > 0 and text[start - 1] == "^":
-            continue
-        try:
-            val = float(raw)
-            key = f"{val:g}"
-        except Exception:
-            key = raw
-        nums.add(key)
-    return nums
-
-
-def tag_lines_for_translation(text: str) -> str:
-    tagged_lines: list[str] = []
-    idx = 1
-    for raw in text.splitlines():
-        if not raw.strip():
-            tagged_lines.append("")
-        else:
-            tag = f"[L{idx:02d}] "
-            tagged_lines.append(tag + raw.strip())
-            idx += 1
-    return "\n".join(tagged_lines)
-
-
-def untag_translated_lines(text: str) -> str:
-    if not text:
-        return ""
-    if "[L" in text:
-        segments = re.split(r"(?=\[L\d+\])", text)
-        out_lines: list[str] = []
-        for seg in segments:
-            seg = seg.strip()
-            if not seg:
-                continue
-            seg = re.sub(r"^\[L\d+\]\s*", "", seg)
-            if seg:
-                out_lines.append(seg)
-        if out_lines:
-            return "\n".join(out_lines)
-    s = text.strip()
-    if not s:
-        return ""
-    s = " ".join(s.split())
-    sentences = [p.strip() for p in re.split(r"(?<=[。！？；])", s) if p.strip()]
-    keywords = (
-        "左心",
-        "右心",
-        "心房",
-        "心室",
-        "主動脈",
-        "肺動脈",
-        "二尖瓣",
-        "三尖瓣",
-        "主動脈瓣",
-        "肺動脈瓣",
-        "心包膜",
-        "心肌",
-        "心功能",
-        "收縮功能",
-        "舒張功能",
+def request_client_id(request: Request) -> str:
+    return (
+        request.headers.get("x-real-ip", "").strip()
+        or (request.client.host if request.client else "unknown")
     )
-    lines: list[str] = []
-    for sent in sentences:
-        parts = re.split(r"(，|,)", sent)
-        buf = ""
-        i = 0
-        while i < len(parts):
-            part = parts[i]
-            if part in ("，", ","):
-                buf += part
-                i += 1
-                if i < len(parts):
-                    nxt = parts[i].lstrip()
-                    if any(nxt.startswith(k) for k in keywords):
-                        if buf.strip():
-                            lines.append(buf.strip())
-                        buf = ""
-                continue
+
+
+def login_retry_after(client_id: str) -> int:
+    now = time.monotonic()
+    with LOGIN_RATE_LOCK:
+        blocked_until = LOGIN_BLOCKED_UNTIL.get(client_id, 0.0)
+        if blocked_until > now:
+            return max(1, int(blocked_until - now) + 1)
+        LOGIN_BLOCKED_UNTIL.pop(client_id, None)
+
+        attempts = LOGIN_FAILURES[client_id]
+        cutoff = now - LOGIN_WINDOW_SECONDS
+        while attempts and attempts[0] <= cutoff:
+            attempts.popleft()
+        if not attempts:
+            LOGIN_FAILURES.pop(client_id, None)
+        return 0
+
+
+def record_login_failure(client_id: str) -> int:
+    now = time.monotonic()
+    with LOGIN_RATE_LOCK:
+        attempts = LOGIN_FAILURES[client_id]
+        cutoff = now - LOGIN_WINDOW_SECONDS
+        while attempts and attempts[0] <= cutoff:
+            attempts.popleft()
+        attempts.append(now)
+        if len(attempts) < LOGIN_MAX_FAILURES:
+            return 0
+        LOGIN_FAILURES.pop(client_id, None)
+        LOGIN_BLOCKED_UNTIL[client_id] = now + LOGIN_BLOCK_SECONDS
+        return LOGIN_BLOCK_SECONDS
+
+
+def clear_login_failures(client_id: str) -> None:
+    with LOGIN_RATE_LOCK:
+        LOGIN_FAILURES.pop(client_id, None)
+        LOGIN_BLOCKED_UNTIL.pop(client_id, None)
+
+
+def same_origin_host(request: Request, source_url: str) -> bool:
+    try:
+        source_host = urlsplit(source_url).netloc.lower()
+    except ValueError:
+        return False
+    request_host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or ""
+    ).split(",", 1)[0].strip().lower()
+    return bool(source_host and request_host and source_host == request_host)
+
+
+@app.middleware("http")
+async def security_policy(request: Request, call_next):
+    api_key = request.headers.get("x-api-key")
+    session_cookie = request.cookies.get(COOKIE_NAME)
+
+    if request.url.path.startswith("/static/generated/") and not auth_ok(request, api_key):
+        response = JSONResponse({"detail": "authentication required"}, status_code=401)
+    else:
+        unsafe_method = request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        api_key_valid = bool(api_key and hmac.compare_digest(api_key, API_KEY))
+        if unsafe_method and session_cookie and not api_key_valid:
+            fetch_site = request.headers.get("sec-fetch-site", "").lower()
+            origin = request.headers.get("origin", "")
+            referer = request.headers.get("referer", "")
+            cross_site = fetch_site == "cross-site"
+            origin_mismatch = bool(origin and not same_origin_host(request, origin))
+            referer_mismatch = bool(not origin and referer and not same_origin_host(request, referer))
+            if cross_site or origin_mismatch or referer_mismatch:
+                response = JSONResponse({"detail": "cross-origin request rejected"}, status_code=403)
             else:
-                buf += part
-                i += 1
-        if buf.strip():
-            lines.append(buf.strip())
-    if not lines:
-        return s
-    return "\n".join(lines)
+                response = await call_next(request)
+        else:
+            response = await call_next(request)
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    )
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self'; "
+        "img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; "
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+    )
+    if request.url.path in {"/", "/login", "/logout"}:
+        response.headers.setdefault("Cache-Control", "no-store")
+    if COOKIE_SECURE:
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+    return response
 
 
-TERM_MAP = {
-    "連枷樣運動": "飄動樣運動",
-    "連枷樣": "飄動樣",
-    "連枷運動": "飄動運動",
-    "連枷": "飄動",
-}
-
-
-def apply_term_map(text: str) -> str:
-    if not text:
-        return text
-    for src, tgt in TERM_MAP.items():
-        text = text.replace(src, tgt)
-    return text
 
 
 class GlossaryPair(BaseModel):
     src: str
     tgt: str
+
+
+class LoginReq(BaseModel):
+    password: str = Field(min_length=1, max_length=256)
 
 
 class TranslateReq(BaseModel):
@@ -351,7 +264,7 @@ class TranslateReq(BaseModel):
     glossary: list[GlossaryPair] = []
     max_new_tokens: int = Field(ge=1, le=4096, default=2048)
     temperature: float = Field(ge=0.0, le=1.5, default=0.10)
-    top_p: float = Field(ge=0.1, le=1.0, default=0.9)
+    top_p: float = Field(ge=0.1, le=1.0, default=0.95)
     translator_model: str | None = None
 
 
@@ -361,8 +274,8 @@ class SummarizeReq(BaseModel):
     style: str = "Clinical"
     keep_formatting: bool = True
     max_new_tokens: int = Field(ge=1, le=4096, default=1024)
-    temperature: float = Field(ge=0.0, le=1.5, default=0.2)
-    top_p: float = Field(ge=0.1, le=1.0, default=0.9)
+    temperature: float = Field(ge=0.0, le=1.5, default=0.0)
+    top_p: float = Field(ge=0.1, le=1.0, default=0.95)
     summarizer_model: str | None = None
 
 
@@ -374,196 +287,57 @@ class PipelineReq(BaseModel):
     glossary: list[GlossaryPair] = []
     max_new_tokens_translate: int = Field(ge=1, le=4096, default=2048)
     temperature_translate: float = Field(ge=0.0, le=1.5, default=0.10)
-    max_new_tokens_summary: int = Field(ge=1, le=4096, default=1024)
-    temperature_summary: float = Field(ge=0.0, le=1.5, default=0.2)
-    top_p: float = Field(ge=0.1, le=1.0, default=0.9)
+    max_new_tokens_summary: int = Field(ge=1, le=4096, default=2048)
+    temperature_summary: float = Field(ge=0.0, le=1.5, default=0.0)
+    top_p: float = Field(ge=0.1, le=1.0, default=0.95)
     translator_model: str | None = None
     summarizer_model: str | None = None
 
 
-def build_mistral_v01_summary_prompt(req: SummarizeReq) -> str:
-    instruction = (
-        "你是一位資深心臟科醫師。請根據以下「中文心臟超音波報告」，撰寫一份符合臨床醫師風格的完整解讀，"
-        "內容請整理成有條理的段落，至少包含：\n"
-        "1. 心臟結構與功能（心房、心室、左心室射出分率等）。\n"
-        "2. 主要異常發現與可能臨床意義。\n"
-        "3. 綜合臨床建議與後續追蹤建議。\n"
-        "請不要逐字重述原始報告，不要重複同一段內容兩次，也不要加入醫師姓名或與報告無關的資訊。"
-    )
-    body = req.source or ""
-    return mistral_inst_prompt(instruction, body)
+class WarmupReq(BaseModel):
+    translator_model: str | None = None
+    summarizer_model: str | None = None
 
 
-def build_legacy_translate_prompt(req: TranslateReq) -> str:
-    instruction = (
-        "請將以下心臟超音波報告翻譯為臨床風格的繁體中文，並保持語氣一致且不加入推論。"
-    )
-    body = req.source.strip()
-
-    return (
-        "Below is an instruction that describes a task, paired with an input that provides further context. "
-        "Write a response that appropriately completes the request.\n\n"
-        "### Instruction:\n"
-        f"{instruction}\n\n"
-        "### Input:\n"
-        f"{body}\n\n"
-        "### Response:\n"
-    )
 
 
-def build_strict_translate_prompt(req: TranslateReq) -> str:
-    instruction = (
-        "請將以下心臟超音波報告翻譯為臨床風格的繁體中文，並保持語氣一致且不加入推論。"
-        "請嚴格依照原文順序逐項翻譯為繁體中文，"
-        "不可摘要、不可重組句子、不可補充推論、"
-        "不可省略數值、單位、嚴重度、解剖位置或檢查結論；"
-        "原文中每個以逗號、句號或分號分隔的資訊片段都必須在譯文中對應一次；"
-        "括號內尺寸、E/E'、Qp/Qs、PG、GLS、肺動脈高壓、肺動脈主幹、"
-        "心包腔、側壁/外側壁/下外側壁、近端1/2、完全無收縮、"
-        "極輕度、輕度至中度、極少量等描述必須完整保留。"
-    )
-    body = req.source.strip()
-
-    return (
-        "### Instruction:\n"
-        f"{instruction}\n\n"
-        "### Input:\n"
-        f"{body}\n\n"
-        "### Response:\n"
-    )
+def extract_structured_findings(
+    model: str,
+    source_text: str,
+    translation_text: str,
+    summary_text: str,
+    top_p: float,
+) -> dict:
+    prompt = build_structured_findings_prompt(source_text, translation_text, summary_text)
+    raw = ollama_generate(model, prompt, 768, 0.05, top_p, response_format="json").strip()
+    parsed = extract_json_object(raw)
+    return normalize_structured_findings(parsed, summary_text)
 
 
-def build_translate_prompt(req: TranslateReq, model_name: str) -> str:
-    if "llama-3.2-3b-instruct-translator-deploy" in (model_name or ""):
-        return build_strict_translate_prompt(req)
-    return build_legacy_translate_prompt(req)
+def build_translation_warn(source: str, translation: str, term_warnings: list[str] | None = None) -> str:
+    src_set = extract_nums_units(source)
+    tgt_set = extract_nums_units(translation)
+    missing = sorted(src_set - tgt_set)
+    extra = sorted(tgt_set - src_set)
+    warn_parts: list[str] = []
+    if missing:
+        warn_parts.append("譯文檢查：缺 " + ", ".join(missing))
+    if extra:
+        warn_parts.append("譯文檢查：多 " + ", ".join(extra))
+    if term_warnings:
+        warn_parts.append("術語檢查：可能缺 " + ", ".join(term_warnings))
+    return "\n".join(warn_parts)
 
 
-CLINICAL_SUMMARY_SUFFIX = (
-    "請以繁體中文輸出保守、忠實、結構化的臨床摘要；"
-    "優先整理原文已明確出現的心臟結構與功能、主要異常發現、綜合解說與建議；"
-    "保留重要數值、器官、瓣膜、嚴重度與關鍵檢查結論；"
-    "不可新增原文沒有的數值、器官、解剖位置、嚴重度、診斷、病理生理推論或治療建議；"
-    "不可自行把壓差或量測值推論成新的疾病嚴重度；"
-    "若原文語氣保守或不確定，摘要中也必須保留不確定性；"
-    "若沒有足夠依據，寧可省略延伸解釋，也不要補寫；"
-    "請嚴格使用以下固定格式，若某節沒有足夠依據可省略該節，但不可改寫節名："
-    "【主要異常】、【心臟功能】、【建議】；"
-    "每節最多 2 點，每點 1 句，總句數盡量控制在 5 句以內；"
-    "只可摘錄原文已明確出現的異常與結論，不可為了摘要完整而主動補齊正常項目；"
-    "不得輸出綜合敘事段落、病因推測、風險延伸解說或額外衛教語句；"
-    "若原文只有數值而沒有明確結論，請保留數值，不可自行判讀成新的異常。"
-)
-
-ACADEMIC_SUMMARY_SUFFIX = (
-    "請以繁體中文輸出較正式的學術風格結構化摘要，"
-    "重點整理心臟結構與功能、主要異常發現、可能的病理生理意義與綜合建議；"
-    "保留重要數值、器官、瓣膜、嚴重度與關鍵檢查結論；"
-    "不可捏造原文沒有的診斷、數值、器官或治療建議。"
-)
-
-PATIENT_SUMMARY_SUFFIX = (
-    "請以繁體中文輸出白話、容易理解的摘要，"
-    "向非醫療背景讀者說明重點發現、可能代表的意義與後續建議；"
-    "可簡化術語，但不可捏造原文沒有的診斷、數值、器官或治療建議。"
-)
-
-SUMMARY_REVISION_PROMPT_TEMPLATE = """### Instruction:
-請檢查下列臨床摘要草稿是否遺漏原文中已明確出現的主要異常、重要數值、嚴重度、器官/瓣膜結構與關鍵檢查結論。若有遺漏，請輸出修正後的繁體中文臨床摘要。
-重要原則：
-1. 可以保留有原文依據的摘要化補述，但不可新增原文沒有的數值、器官、嚴重度、診斷或病理生理推論。
-2. 優先補回「主要異常」與「心臟功能」中的核心 finding；若只是次要正常描述，可不必補齊。
-3. 若原文只有數值而沒有明確結論，可保留數值，但不可自行升級成新的疾病判讀。
-4. 請維持簡潔、結構化的臨床摘要格式，不要寫成長段評論。
-5. 請優先在原草稿基礎上補回遺漏的重點，不要整篇大幅改寫成新的敘事版本。
-6. 請嚴格使用以下固定格式，若某節沒有足夠依據可省略該節：
-【主要異常】
-- ...
-【心臟功能】
-- ...
-【建議】
-- ...
-7. 每節最多 2 點，每點 1 句；總句數盡量控制在 6 句以內。
-8. 若原文已有明確結論（例如有肺高壓、收縮功能下降、舒張壓升高、重度狹窄/逆流），應優先補回；若原文僅提供量測值而未明確下結論，不可自行推論成新診斷。
-9. 特別優先檢查是否遺漏以下資訊：
-   - 舒張功能與壓力指標：E/A、E/E'、舒張功能障礙、舒張壓升高、充盈壓升高
-   - 右心與肺循環：肺高壓、肺動脈主幹/肺動脈幹擴張、右心房/右心室擴大、三尖瓣壓力梯度
-   - 區域性壁運動：心尖、側壁、外側壁、下壁、隔部、前壁等局部異常位置
-   - 關鍵嚴重度：極輕度、輕度至中度、中度至重度、重度、少量、極少量
-   - 其他高價值 finding：心包積液、心包腔、瓣膜狹窄/逆流嚴重度、肺動脈瓣/主動脈根部/右心房面積等
-10. 若原文同時出現「數值 + 已明確判讀」，優先保留已明確判讀，並視需要保留最關鍵數值，不必把所有次要數值全部重抄。
-
-### Input:
-原文：
-{input_text}
-
-草稿：
-{draft_text}
-
-### Response:
-"""
-
-
-def build_llama_summary_prompt(req: SummarizeReq) -> str:
-    style = (req.style or "").strip().lower()
-    instruction = "請摘要以下心臟超音波報告"
-    if "academic" in style:
-        instruction = f"{instruction}。{ACADEMIC_SUMMARY_SUFFIX}"
-    elif "patient" in style or "friendly" in style or "simple" in style:
-        instruction = f"{instruction}。{PATIENT_SUMMARY_SUFFIX}"
-    else:
-        instruction = f"{instruction}。{CLINICAL_SUMMARY_SUFFIX}"
-
-    return (
-        "### Instruction:\n"
-        f"{instruction}\n\n"
-        "### Input:\n"
-        f"{req.source.strip()}\n\n"
-        "### Response:\n"
-    )
-
-
-def build_summary_revision_prompt(input_text: str, draft_text: str) -> str:
-    return SUMMARY_REVISION_PROMPT_TEMPLATE.format(
-        input_text=input_text.strip(),
-        draft_text=draft_text.strip(),
-    )
-
-
-def uses_summary_revision(model_name: str) -> bool:
-    return SUMMARY_REVISION_MODEL_MARKER in (model_name or "")
-
-
-def build_summary_prompt(req: SummarizeReq, model_name: str = "") -> str:
-    if SUMMARY_REVISION_MODEL_MARKER in (model_name or ""):
-        return build_llama_summary_prompt(req)
-
-    style = (req.style or "").strip().lower()
-    if "clinical" in style:
-        tone_prompt = "Write a concise structured clinical summary focusing on cardiac function, abnormalities, and key impressions."
-    elif "academic" in style:
-        tone_prompt = "Summarize the report in an academic tone, highlighting methodology, results, and interpretations."
-    elif "patient" in style or "friendly" in style:
-        tone_prompt = "Explain the findings in simple, patient-friendly Traditional Chinese that non-medical readers can understand."
-    else:
-        tone_prompt = (
-            "Provide a brief, professional summary of the cardiac ultrasound findings."
-        )
-    return (
-        "Summarize the following Traditional Chinese echocardiography report.\n"
-        "Provide a clear and structured summary with:\n"
-        "1. 心臟結構與功能\n"
-        "2. 主要異常發現\n"
-        "3. 臨床建議或解釋\n\n"
-        f"{tone_prompt}\n\n"
-        "=== 心臟超音波報告 ===\n"
-        f"{req.source.strip()}\n"
-        "=== 結束 ==="
-    )
 
 
 def ollama_generate(
-    model: str, prompt: str, max_new_tokens: int, temperature: float, top_p: float
+    model: str,
+    prompt: str,
+    max_new_tokens: int,
+    temperature: float,
+    top_p: float,
+    response_format: str | None = None,
 ) -> str:
     url = f"{OLLAMA_URL}/api/generate"
     payload = {
@@ -574,71 +348,136 @@ def ollama_generate(
         "options": {
             "temperature": float(temperature),
             "top_p": float(top_p),
-            "num_predict": int(max_new_tokens),
+            "num_predict": effective_num_predict(model, max_new_tokens),
             "repeat_penalty": 1.05,
             "num_ctx": 4096,
         },
     }
-    try:
+    if uses_complete_clinical_summary_model(model):
+        payload["options"]["seed"] = 42
+    apply_generation_runtime_guards(model, payload["options"])
+    if response_format:
+        payload["format"] = response_format
+    r = requests.post(url, json=payload, timeout=600)
+    if r.status_code != 200 and response_format:
+        payload.pop("format", None)
         r = requests.post(url, json=payload, timeout=600)
-    except requests.RequestException as exc:
-        raise HTTPException(
-            502,
-            f"Cannot connect to Ollama at {OLLAMA_URL}: {exc}",
-        ) from exc
     if r.status_code != 200:
-        raise HTTPException(r.status_code, r.text or r.reason)
+        raise HTTPException(r.status_code, r.text)
+    return r.json().get("response", "")
+
+
+def json_event(event: str, **data) -> str:
+    payload = {"event": event, **data}
+    return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
+def ollama_loaded_models() -> list[str]:
     try:
+        r = requests.get(f"{OLLAMA_URL}/api/ps", timeout=10)
+        if r.status_code != 200:
+            return []
         data = r.json()
-    except ValueError as exc:
-        raise HTTPException(
-            502,
-            f"Ollama returned non-JSON response: {r.text[:300]}",
-        ) from exc
-    return data.get("response", "")
+    except Exception:
+        return []
+    return sorted({
+        model.get("name", "")
+        for model in data.get("models", [])
+        if model.get("name")
+    })
 
 
-def build_mistral_translate_prompt(english_text: str, tone: str = "Clinical") -> str:
-    tone = tone.strip().lower()
-    base = (
-        "Translate the following cardiology ultrasound report from English to Traditional Chinese.\n"
-        "- Keep the original line breaks and section order.\n"
-        "- Do not add, remove, or infer any information.\n"
-        "- Translate abbreviations to standard clinical Chinese when common (e.g., MR=二尖瓣逆流).\n"
-        "- Keep units and numbers as-is.\n"
-        "- Output ONLY the translated report text. Do not include any explanations.\n\n"
+def ollama_unload_model(model: str) -> None:
+    payload = {
+        "model": model,
+        "prompt": "",
+        "stream": False,
+        "keep_alive": 0,
+    }
+    r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=120)
+    if r.status_code != 200:
+        raise RuntimeError(r.text)
+
+
+def ollama_warm_model(model: str) -> dict:
+    payload = {
+        "model": model,
+        "prompt": "warmup",
+        "stream": False,
+        "keep_alive": KEEP_ALIVE,
+        "options": {
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "num_predict": 1,
+            "num_ctx": 4096,
+        },
+    }
+    r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=600)
+    if r.status_code != 200:
+        raise RuntimeError(r.text)
+    return r.json()
+
+
+def uses_legacy_mistral_prompt(model_name: str) -> bool:
+    model_name = (model_name or "").lower()
+    return "mistral" in model_name and "ministral" not in model_name
+
+
+def uses_llama_complete_summary_runtime_guard(model_name: str) -> bool:
+    model_name = (model_name or "").lower()
+    return (
+        "llama-3.2-3b-instruct-summarizer-clinical-v4" in model_name
+        or "llama-3.2-3b-instruct-summarizer-complete-clinical-v5" in model_name
     )
-    if tone == "clinical":
-        tone_hint = "Use formal clinical tone.\n"
-    elif tone == "academic":
-        tone_hint = (
-            "Use academic, publication-style language suitable for medical journals.\n"
-        )
-    elif tone in ["patient-friendly", "simple"]:
-        tone_hint = (
-            "Use simple, patient-friendly tone understandable by non-medical readers.\n"
-        )
-    else:
-        tone_hint = ""
-    return f"{base}{tone_hint}=== English report ===\n{english_text.strip()}\n=== End ===\n"
 
 
-def build_mistral_summary_prompt(chinese_text: str, style: str = "Clinical") -> str:
-    style = style.strip().lower()
-    base = (
-        "Summarize the following Traditional Chinese echocardiography report into a structured medical summary.\n"
-        "Divide the summary into 3 sections:『心臟功能與結構評估』『異常發現』『綜合說明與建議』.\n"
-        "Include key metrics (e.g., EF, chamber sizes, valve status) but avoid repeating every number.\n"
-    )
-    if style == "clinical":
-        style_hint = "- Use concise and professional clinical language.\n- Follow hospital reporting style.\n"
-    elif style == "academic":
-        style_hint = "- Use formal academic tone suitable for scientific discussion.\n- Explain findings with logical reasoning, including possible physiological implications.\n"
-    elif style in ["patient-friendly", "simple"]:
-        style_hint = "- Explain findings in plain language for patient understanding.\n- Simplify medical terms while keeping accuracy.\n"
-    else:
-        style_hint = ""
-    return f"{base}{style_hint}\n\n=== 心臟超音波報告 ===\n{chinese_text.strip()}\n=== 結束 ===\nPlease output only the structured summary text.\n"
+def effective_num_predict(model_name: str, max_new_tokens: int) -> int:
+    requested = int(max_new_tokens)
+    if uses_llama_complete_summary_runtime_guard(model_name):
+        return min(requested, LLAMA_COMPLETE_SUMMARY_MAX_TOKENS)
+    return requested
+
+
+def apply_generation_runtime_guards(model_name: str, options: dict) -> None:
+    if uses_llama_complete_summary_runtime_guard(model_name):
+        options["repeat_penalty"] = 1.08
+        options["repeat_last_n"] = 512
+
+
+def ollama_stream_generate(
+    model: str, prompt: str, max_new_tokens: int, temperature: float, top_p: float
+):
+    url = f"{OLLAMA_URL}/api/generate"
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": True,
+        "keep_alive": KEEP_ALIVE,
+        "options": {
+            "temperature": float(temperature),
+            "top_p": float(top_p),
+            "num_predict": effective_num_predict(model, max_new_tokens),
+            "repeat_penalty": 1.05,
+            "num_ctx": 4096,
+        },
+    }
+    if uses_complete_clinical_summary_model(model):
+        payload["options"]["seed"] = 42
+    apply_generation_runtime_guards(model, payload["options"])
+    r = requests.post(url, json=payload, stream=True, timeout=600)
+    if r.status_code != 200:
+        raise RuntimeError(r.text)
+    for line in r.iter_lines():
+        if not line:
+            continue
+        try:
+            chunk = json.loads(line.decode("utf-8"))
+        except Exception:
+            continue
+        yield chunk
+
+
+
 
 
 # -------------------------------------------------------------------------
@@ -651,39 +490,25 @@ def health():
     return {"ok": True}
 
 
-@app.get("/api/health/ollama")
-def ollama_health():
+@app.get("/healthz")
+def healthz():
     ok = False
     try:
         ok = requests.get(f"{OLLAMA_URL}/api/tags", timeout=3).status_code == 200
     except Exception:
         ok = False
-    return {
-        "ok": ok,
-        "translator_default": MODEL_TRANS_DEFAULT,
-        "summarizer_default": MODEL_SUM_DEFAULT,
-    }
-
-
-@app.get("/healthz")
-def healthz():
-    return ollama_health()
+    if not ok:
+        return JSONResponse({"ok": False}, status_code=503)
+    return {"ok": True}
 
 
 @app.get("/models")
 def models(request: Request, x_api_key: str = Header(default=None)):
     if not auth_ok(request, x_api_key):
         raise HTTPException(401, "unauthorized")
-    fallback_names = FALLBACK_MODEL_NAMES
-    try:
-        r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        names = sorted({m.get("name", "") for m in data.get("models", []) if m.get("name")})
-    except requests.RequestException:
-        names = fallback_names
-    if not names:
-        names = fallback_names
+    r = requests.get(f"{OLLAMA_URL}/api/tags", timeout=10)
+    data = r.json()
+    names = sorted({m.get("name", "") for m in data.get("models", []) if m.get("name")})
     return {
         "names": names,
         "defaults": {
@@ -691,6 +516,87 @@ def models(request: Request, x_api_key: str = Header(default=None)):
             "summarizer": MODEL_SUM_DEFAULT,
         },
     }
+
+
+@app.post("/models/warmup_stream")
+def warmup_models_stream(req: WarmupReq, request: Request, x_api_key: str = Header(default=None)):
+    if not auth_ok(request, x_api_key):
+        raise HTTPException(401, "unauthorized")
+
+    target_models = [
+        model
+        for model in (req.translator_model or MODEL_TRANS_DEFAULT, req.summarizer_model or MODEL_SUM_DEFAULT)
+        if model
+    ]
+    target_models = list(dict.fromkeys(target_models))
+
+    def event_gen():
+        try:
+            yield json_event(
+                "phase_start",
+                phase="inspect",
+                label="檢查目前載入模型",
+                progress=6,
+            )
+            loaded = ollama_loaded_models()
+            unload_targets = [model for model in loaded if model not in target_models]
+            if unload_targets:
+                step = 24 / max(len(unload_targets), 1)
+                for idx, model in enumerate(unload_targets, start=1):
+                    yield json_event(
+                        "status",
+                        phase="unload",
+                        label=f"卸載舊模型：{model}",
+                        progress=8 + int(step * (idx - 1)),
+                    )
+                    ollama_unload_model(model)
+            else:
+                yield json_event(
+                    "status",
+                    phase="unload",
+                    label="沒有需要卸載的舊模型",
+                    progress=28,
+                )
+
+            loaded_after_unload = set(ollama_loaded_models())
+            load_step = 58 / max(len(target_models), 1)
+            for idx, model in enumerate(target_models, start=1):
+                base_progress = 32 + int(load_step * (idx - 1))
+                if model in loaded_after_unload:
+                    yield json_event(
+                        "status",
+                        phase="load",
+                        label=f"模型已在記憶體：{model}",
+                        progress=base_progress,
+                    )
+                    continue
+                yield json_event(
+                    "status",
+                    phase="load",
+                    label=f"載入模型：{model}",
+                    progress=base_progress,
+                )
+                stats = ollama_warm_model(model)
+                yield json_event(
+                    "status",
+                    phase="load",
+                    label=f"已載入：{model}",
+                    progress=32 + int(load_step * idx),
+                    load_duration=stats.get("load_duration"),
+                )
+
+            final_loaded = ollama_loaded_models()
+            yield json_event(
+                "done",
+                label="模型預熱完成",
+                progress=100,
+                loaded=final_loaded,
+                targets=target_models,
+            )
+        except Exception as e:
+            yield json_event("error", message=str(e), progress=100)
+
+    return StreamingResponse(event_gen(), media_type="text/plain; charset=utf-8")
 
 
 @app.post("/translate")
@@ -707,18 +613,14 @@ def translate(
     raw_text = ollama_generate(
         model, prompt, req.max_new_tokens, req.temperature, req.top_p
     )
-    text = untag_translated_lines(raw_text)
+    if preserves_translation_linebreaks(model):
+        text = raw_text.strip()
+    else:
+        text = untag_translated_lines(raw_text)
     text = apply_term_map(text)
     text = strip_model_header(text)
-    src_set = extract_nums_units(req.source)
-    tgt_set = extract_nums_units(text)
-    missing = sorted(src_set - tgt_set)
-    extra = sorted(tgt_set - src_set)
-    warn = ""
-    if missing:
-        warn += "譯文檢查：缺 " + ", ".join(missing)
-    if extra:
-        warn += ("\n" if warn else "") + "譯文檢查：多 " + ", ".join(extra)
+    text, term_warnings = apply_translation_term_audit(req.source, text)
+    warn = build_translation_warn(req.source, text, term_warnings)
     return {"translation": text, "warn": warn}
 
 
@@ -742,7 +644,7 @@ def translate_stream(
         "options": {
             "temperature": float(req.temperature),
             "top_p": float(req.top_p),
-            "num_predict": int(req.max_new_tokens),
+            "num_predict": effective_num_predict(model, req.max_new_tokens),
             "repeat_penalty": 1.05,
             "num_ctx": 4096,
         },
@@ -775,15 +677,14 @@ def translate_stream(
                     {"event": "token", "delta": token}, ensure_ascii=False
                 ) + "\n"
             if done:
-                src_set = extract_nums_units(req.source)
-                tgt_set = extract_nums_units(full_text)
-                missing = sorted(src_set - tgt_set)
-                extra = sorted(tgt_set - src_set)
-                warn = ""
-                if missing:
-                    warn += "譯文檢查：缺 " + ", ".join(missing)
-                if extra:
-                    warn += ("\n" if warn else "") + "譯文檢查：多 " + ", ".join(extra)
+                if preserves_translation_linebreaks(model):
+                    final_text = full_text.strip()
+                else:
+                    final_text = untag_translated_lines(full_text)
+                final_text = apply_term_map(final_text)
+                final_text = strip_model_header(final_text)
+                final_text, term_warnings = apply_translation_term_audit(req.source, final_text)
+                warn = build_translation_warn(req.source, final_text, term_warnings)
                 yield json.dumps(
                     {"event": "done", "warn": warn}, ensure_ascii=False
                 ) + "\n"
@@ -806,6 +707,7 @@ def summarize(
     text = ollama_generate(
         model, prompt, req.max_new_tokens, req.temperature, req.top_p
     ).strip()
+    raw_text = trim_summary_repetitions(text)
     if uses_summary_revision(model) and text:
         revision_prompt = build_summary_revision_prompt(req.source, text)
         revised_text = ollama_generate(
@@ -813,10 +715,15 @@ def summarize(
         ).strip()
         if revised_text:
             text = revised_text
-        text = sanitize_summary_against_source(req.source, text)
-    text = dedup_summary_lines(text)
+    if uses_complete_clinical_summary_model(model):
+        analysis_text = finalize_complete_summary(req.source, text)
+    else:
+        analysis_text = dedup_summary_lines(text)
+    display_text = raw_text if preserves_model_summary_format(model) else analysis_text
+    analysis_text = standardize_summary_terms(analysis_text)
+    display_text = standardize_summary_terms(display_text)
     src_set = extract_nums_units(req.source)
-    tgt_set = extract_nums_units(text)
+    tgt_set = extract_nums_units(analysis_text)
     missing = sorted(src_set - tgt_set)
     extra = sorted(tgt_set - src_set)
     warn = ""
@@ -824,7 +731,7 @@ def summarize(
         warn += "摘要檢查：缺 " + ", ".join(missing)
     if extra:
         warn += ("\n" if warn else "") + "摘要檢查：多 " + ", ".join(extra)
-    return {"summary": text, "warn": warn}
+    return {"summary": display_text, "warn": warn}
 
 
 @app.post("/pipeline")
@@ -833,8 +740,8 @@ def pipeline(req: PipelineReq, request: Request, x_api_key: str = Header(default
         raise HTTPException(401, "unauthorized")
     t_model = req.translator_model or MODEL_TRANS_DEFAULT
     s_model = req.summarizer_model or MODEL_SUM_DEFAULT
-    mistral_trans = "mistral" in t_model.lower()
-    mistral_sum = "mistral" in s_model.lower()
+    mistral_trans = uses_legacy_mistral_prompt(t_model)
+    mistral_sum = uses_legacy_mistral_prompt(s_model)
     if mistral_trans:
         t_prompt = build_mistral_translate_prompt(req.source, req.style)
     else:
@@ -858,8 +765,13 @@ def pipeline(req: PipelineReq, request: Request, x_api_key: str = Header(default
         req.temperature_translate,
         req.top_p,
     )
-    t = untag_translated_lines(raw_t)
+    if preserves_translation_linebreaks(t_model):
+        t = raw_t.strip()
+    else:
+        t = untag_translated_lines(raw_t)
     t = apply_term_map(t)
+    t = strip_model_header(t)
+    t, warn_translation_terms = apply_translation_term_audit(req.source, t)
     if mistral_sum:
         s_prompt = build_mistral_summary_prompt(t, req.style)
     else:
@@ -882,6 +794,7 @@ def pipeline(req: PipelineReq, request: Request, x_api_key: str = Header(default
         req.temperature_summary,
         req.top_p,
     ).strip()
+    raw_summary = trim_summary_repetitions(s)
     if uses_summary_revision(s_model) and s:
         revision_prompt = build_summary_revision_prompt(t, s)
         revised_summary = ollama_generate(
@@ -893,25 +806,253 @@ def pipeline(req: PipelineReq, request: Request, x_api_key: str = Header(default
         ).strip()
         if revised_summary:
             s = revised_summary
-        s = sanitize_summary_against_source(t, s)
+    if uses_complete_clinical_summary_model(s_model):
+        summary_for_analysis = finalize_complete_summary(t, s)
+    else:
+        summary_for_analysis = dedup_summary_lines(s)
+    display_summary = raw_summary if preserves_model_summary_format(s_model) else summary_for_analysis
+    summary_for_analysis = standardize_summary_terms(summary_for_analysis)
+    display_summary = standardize_summary_terms(display_summary)
+    structured = rule_based_structured_findings(req.source, t, "")
+
     src_set = extract_nums_units(req.source)
     trans_set = extract_nums_units(t)
-    sum_set = extract_nums_units(s)
+    sum_set = extract_nums_units(summary_for_analysis)
     return {
         "translation": t,
-        "summary": s,
+        "summary": display_summary,
+        "structured": structured,
         "warn_translation_missing": sorted(src_set - trans_set),
         "warn_translation_extra": sorted(trans_set - src_set),
+        "warn_translation_terms": warn_translation_terms,
         "warn_summary_missing": sorted(trans_set - sum_set),
         "warn_summary_extra": sorted(sum_set - trans_set),
     }
 
 
+@app.post("/pipeline_stream")
+def pipeline_stream(req: PipelineReq, request: Request, x_api_key: str = Header(default=None)):
+    if not auth_ok(request, x_api_key):
+        raise HTTPException(401, "unauthorized")
+
+    def event_gen():
+        try:
+            t_model = req.translator_model or MODEL_TRANS_DEFAULT
+            s_model = req.summarizer_model or MODEL_SUM_DEFAULT
+            mistral_trans = uses_legacy_mistral_prompt(t_model)
+            mistral_sum = uses_legacy_mistral_prompt(s_model)
+
+            if mistral_trans:
+                t_prompt = build_mistral_translate_prompt(req.source, req.style)
+            else:
+                t_prompt = build_translate_prompt(
+                    TranslateReq(
+                        source=req.source,
+                        target_lang=req.target_lang,
+                        style=req.style,
+                        keep_formatting=req.keep_formatting,
+                        glossary=req.glossary,
+                        max_new_tokens=req.max_new_tokens_translate,
+                        temperature=req.temperature_translate,
+                        top_p=req.top_p,
+                    ),
+                    t_model,
+                )
+
+            yield json_event(
+                "phase_start",
+                phase="translate",
+                label="翻譯模型推論中",
+                progress=8,
+            )
+            raw_t = ""
+            for chunk in ollama_stream_generate(
+                t_model,
+                t_prompt,
+                req.max_new_tokens_translate,
+                req.temperature_translate,
+                req.top_p,
+            ):
+                token = chunk.get("response", "")
+                done = chunk.get("done", False)
+                if token:
+                    raw_t += token
+                    yield json_event("token", phase="translate", delta=token)
+                if done:
+                    break
+
+            if preserves_translation_linebreaks(t_model):
+                t = raw_t.strip()
+            else:
+                t = untag_translated_lines(raw_t)
+            t = apply_term_map(t)
+            t = strip_model_header(t)
+            t, warn_translation_terms = apply_translation_term_audit(req.source, t)
+            src_set = extract_nums_units(req.source)
+            trans_set = extract_nums_units(t)
+            warn_translation_missing = sorted(src_set - trans_set)
+            warn_translation_extra = sorted(trans_set - src_set)
+            yield json_event(
+                "phase_done",
+                phase="translate",
+                text=t,
+                progress=48,
+                warn_missing=warn_translation_missing,
+                warn_extra=warn_translation_extra,
+                warn_terms=warn_translation_terms,
+            )
+
+            if mistral_sum:
+                s_prompt = build_mistral_summary_prompt(t, req.style)
+            else:
+                s_prompt = build_summary_prompt(
+                    SummarizeReq(
+                        source=t,
+                        target_lang=req.target_lang,
+                        style=req.style,
+                        keep_formatting=req.keep_formatting,
+                        max_new_tokens=req.max_new_tokens_summary,
+                        temperature=req.temperature_summary,
+                        top_p=req.top_p,
+                    ),
+                    s_model,
+                )
+
+            yield json_event(
+                "phase_start",
+                phase="summary",
+                label="摘要模型推論中",
+                progress=54,
+            )
+            s = ""
+            summary_loop_guarded = False
+            for chunk in ollama_stream_generate(
+                s_model,
+                s_prompt,
+                req.max_new_tokens_summary,
+                req.temperature_summary,
+                req.top_p,
+            ):
+                token = chunk.get("response", "")
+                done = chunk.get("done", False)
+                if token:
+                    s += token
+                    yield json_event("token", phase="summary", delta=token)
+                    if uses_llama_complete_summary_runtime_guard(s_model) and has_summary_loop_tail(s):
+                        summary_loop_guarded = True
+                        break
+                if done:
+                    break
+
+            s = s.strip()
+            if summary_loop_guarded:
+                yield json_event(
+                    "status",
+                    phase="summary",
+                    label="偵測到摘要重複輸出，已提前整理結果",
+                    progress=84,
+                )
+            display_summary = trim_summary_repetitions(s)
+            summary_for_analysis = s
+            if uses_summary_revision(s_model) and s:
+                yield json_event(
+                    "status",
+                    phase="summary",
+                    label="摘要校正與來源一致性檢查",
+                    progress=84,
+                )
+                revision_prompt = build_summary_revision_prompt(t, s)
+                revised_summary = ollama_generate(
+                    s_model,
+                    revision_prompt,
+                    req.max_new_tokens_summary,
+                    0.1,
+                    req.top_p,
+                ).strip()
+                if revised_summary:
+                    summary_for_analysis = revised_summary
+            if uses_complete_clinical_summary_model(s_model):
+                summary_for_analysis = finalize_complete_summary(t, summary_for_analysis)
+            else:
+                summary_for_analysis = dedup_summary_lines(summary_for_analysis)
+            if preserves_model_summary_format(s_model):
+                display_summary = trim_summary_repetitions(display_summary)
+            else:
+                display_summary = summary_for_analysis
+            summary_for_analysis = standardize_summary_terms(summary_for_analysis)
+            display_summary = standardize_summary_terms(display_summary)
+
+            sum_set = extract_nums_units(summary_for_analysis)
+            warn_summary_missing = sorted(trans_set - sum_set)
+            warn_summary_extra = sorted(sum_set - trans_set)
+            yield json_event(
+                "phase_done",
+                phase="summary",
+                text=display_summary,
+                progress=88,
+                warn_missing=warn_summary_missing,
+                warn_extra=warn_summary_extra,
+            )
+
+            yield json_event(
+                "phase_start",
+                phase="extract_json",
+                label="結構化 JSON 解析中",
+                progress=92,
+            )
+            structured = rule_based_structured_findings(req.source, t, "")
+            yield json_event(
+                "phase_done",
+                phase="extract_json",
+                structured=structured,
+                progress=97,
+            )
+
+            yield json_event(
+                "done",
+                progress=100,
+                structured=structured,
+                warn_translation_missing=warn_translation_missing,
+                warn_translation_extra=warn_translation_extra,
+                warn_translation_terms=warn_translation_terms,
+                warn_summary_missing=warn_summary_missing,
+                warn_summary_extra=warn_summary_extra,
+            )
+        except Exception as e:
+            yield json_event("error", message=str(e))
+
+    return StreamingResponse(event_gen(), media_type="text/plain; charset=utf-8")
+
+
+@app.post("/image/generate")
+def image_generate(req: ImageGenerateReq, request: Request, x_api_key: str = Header(default=None)):
+    if not auth_ok(request, x_api_key):
+        raise HTTPException(401, "unauthorized")
+    return generate_image(req)
+
 @app.post("/login")
-def login(data: dict, response: Response):
-    pwd = (data or {}).get("password", "")
-    if not hmac.compare_digest(pwd, UI_PASSWORD):
-        raise HTTPException(401, "wrong password")
+def login(data: LoginReq, request: Request, response: Response):
+    client_id = request_client_id(request)
+    retry_after = login_retry_after(client_id)
+    if retry_after:
+        raise HTTPException(
+            429,
+            "too many login attempts",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    if not hmac.compare_digest(data.password, UI_PASSWORD):
+        retry_after = record_login_failure(client_id)
+        logger.warning("Rejected login attempt from %s", client_id)
+        if retry_after:
+            raise HTTPException(
+                429,
+                "too many login attempts",
+                headers={"Retry-After": str(retry_after)},
+            )
+        raise HTTPException(401, "invalid credentials")
+
+    clear_login_failures(client_id)
     exp = int(time.time()) + SESSION_HOURS * 3600
     token = make_token("user", exp)
     response.set_cookie(
@@ -919,7 +1060,7 @@ def login(data: dict, response: Response):
         value=token,
         httponly=True,
         secure=COOKIE_SECURE,
-        samesite="lax",
+        samesite="strict",
         max_age=SESSION_HOURS * 3600,
         path="/",
     )
@@ -928,7 +1069,15 @@ def login(data: dict, response: Response):
 
 @app.post("/logout")
 def logout(response: Response):
-    response.delete_cookie(COOKIE_NAME, path="/")
+    response.delete_cookie(
+        COOKIE_NAME,
+        path="/",
+        secure=COOKIE_SECURE,
+        httponly=True,
+        samesite="strict",
+    )
+    if LEGACY_COOKIE_NAME != COOKIE_NAME:
+        response.delete_cookie(LEGACY_COOKIE_NAME, path="/")
     return {"ok": True}
 
 
@@ -936,5 +1085,5 @@ def logout(response: Response):
 def ui(request: Request):
     token = request.cookies.get(COOKIE_NAME)
     if token and parse_token(token):
-        return templates.TemplateResponse("ui.html", {"request": request})
-    return templates.TemplateResponse("login.html", {"request": request})
+        return templates.TemplateResponse(request=request, name="ui.html")
+    return templates.TemplateResponse(request=request, name="login.html")

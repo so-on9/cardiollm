@@ -21,6 +21,9 @@ ollama_store/
 k8s/secret.yaml
 proxy/__pycache__/
 proxy/static/generated/
+proxy/static/react/
+frontend/node_modules/
+.artifacts/
 *.db
 *.sqlite
 *.sqlite3

@@ -31,6 +31,8 @@ Thumbs.db
 .cache/
 .nv/
 .triton/
+node_modules/
+.artifacts/
 .pytest_cache/
 .mypy_cache/
 
@@ -51,6 +53,10 @@ ollama_store/
 
 # Local handoff / writing notes
 *PAPER_HANDOFF.md
+
+# Build and runtime output
+proxy/static/react/
+proxy/static/generated/
 
 # Local runtime / databases / temporary files
 caddy_data/

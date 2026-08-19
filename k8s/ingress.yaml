@@ -3,8 +3,15 @@ kind: Ingress
 metadata:
   name: cardiollm
   namespace: cardiollm
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - cardiollm.example.local
+      secretName: cardiollm-tls
   rules:
     - host: cardiollm.example.local
       http:

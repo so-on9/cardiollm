@@ -1,22 +1,90 @@
 <!doctype html>
 <html lang="zh-TW">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0d100f">
+    <meta name="robots" content="noindex, nofollow">
+    <title>CardioLLM | 系統登入</title>
+    <link rel="stylesheet" href="/static/login.css?v=20260818">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="CardioLLM 首頁">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span class="brand-copy">
+          <strong>CardioLLM</strong>
+          <span>Cardiac report intelligence</span>
+        </span>
+      </a>
+      <div class="connection-state">
+        <span aria-hidden="true"></span>
+        Secure session
+      </div>
+    </header>
 
-<head>
-  <meta charset="utf-8">
-  <title>系統登入</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="/static/login.css">
-</head>
+    <main class="login-layout">
+      <section class="auth-panel" aria-labelledby="login-title">
+        <div class="section-index">01 / Authorization</div>
+        <div class="auth-heading">
+          <p>台中榮總心臟科</p>
+          <h1 id="login-title">進入分析工作台</h1>
+          <span>限授權人員使用</span>
+        </div>
 
-<body>
-  <div class="bg-gradient"></div>
-  <div class="glass-card">
-    <h1>系統登入</h1>
-    <input id="pw" type="password" placeholder="請輸入密碼">
-    <button id="btn">進入系統</button>
-    <div class="err" id="err"></div>
-  </div>
-  <script src="/static/login.js"></script>
-</body>
+        <form id="login-form" novalidate>
+          <label for="pw">存取密碼</label>
+          <div class="password-field">
+            <input
+              id="pw"
+              name="password"
+              type="password"
+              inputmode="text"
+              autocomplete="current-password"
+              maxlength="256"
+              placeholder="輸入密碼"
+              aria-describedby="login-error"
+              required
+              autofocus
+            >
+            <span aria-hidden="true">Protected</span>
+          </div>
+          <button id="btn" type="submit">
+            <span class="button-label">驗證並進入</span>
+            <span class="button-arrow" aria-hidden="true">→</span>
+          </button>
+          <p class="error-message" id="login-error" role="alert" aria-live="polite"></p>
+        </form>
 
+        <div class="session-note">
+          <span aria-hidden="true"></span>
+          驗證成功後建立受保護的工作階段
+        </div>
+      </section>
+
+      <aside class="visual-panel" aria-hidden="true">
+        <div class="visual-meta">
+          <span>02 / Cardiac map</span>
+          <span>System ready</span>
+        </div>
+        <div class="heart-stage">
+          <span class="axis axis-x"></span>
+          <span class="axis axis-y"></span>
+          <span class="target-ring"></span>
+          <img src="/static/Heart_diagram_nobg_dark.png" alt="">
+        </div>
+        <div class="visual-caption">
+          <span>Echocardiography</span>
+          <strong>Clinical analysis interface</strong>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="site-footer">
+      <span>CardioLLM / Internal access</span>
+      <span>TLS protected</span>
+    </footer>
+
+    <script src="/static/login.js?v=20260818security"></script>
+  </body>
 </html>
