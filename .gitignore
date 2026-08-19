@@ -53,6 +53,7 @@ ollama_store/
 *PAPER_HANDOFF.md
 safety.md
 refer/
+Refer_aidraw/
 
 # Runtime generated images
 proxy/static/generated/
