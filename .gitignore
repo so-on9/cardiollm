@@ -54,6 +54,8 @@ ollama_store/
 # Local handoff / writing notes
 *PAPER_HANDOFF.md
 
+tests/
+
 # Build and runtime output
 proxy/static/react/
 proxy/static/generated/
