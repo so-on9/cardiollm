@@ -1,12 +1,12 @@
 # CardioLLM K8s 遠端 Ollama 版本
 
-這份專案是 CardioLLM 的 K8s / CubeOS 上線版本。它提供 React/Vite Web UI 與 FastAPI proxy，不在 K8s 內執行 Ollama，也不把 GGUF 模型放進 container image。
+這份專案是 CardioLLM 的 K8s / CubeCOS 上線版本。它提供 React/Vite Web UI 與 FastAPI proxy，不在 K8s 內執行 Ollama，也不把 GGUF 模型放進 container image。
 
-目前設計是由 CubeOS / K8s 上的 proxy 遠端呼叫 5070 Ti 主機上的 Ollama：
+目前設計是由 CubeCOS / K8s 上的 proxy 遠端呼叫 5070 Ti 主機上的 Ollama：
 
 ```text
 Browser
-  -> CubeOS / K8s Ingress
+  -> CubeCOS / K8s Ingress
   -> cardiollm-proxy Pod
   -> protected remote Ollama endpoint
   -> 5070 Ti Ollama + GGUF
@@ -38,7 +38,7 @@ OLLAMA_SUM_MODEL=replace-with-your-summarizer-model:q8
 
 這些模型必須已經在 5070 Ti 主機上的 Ollama 裡註冊完成。K8s 版本只傳送 API request，不會直接讀取 `gguf/`。
 
-安全重點：`OLLAMA_URL` 必須是只有 CubeOS/K8s 節點可連的受保護端點，不應把 Ollama API 對全世界公開。
+安全重點：`OLLAMA_URL` 必須是只有 CubeCOS/K8s 節點可連的受保護端點，不應把 Ollama API 對全世界公開。
 
 目前同步功能包含新版登入介面、React 響應式工作台、模型預熱、串流推論進度、結構化 JSON、固定來源的心臟標示、摘要術語 RAG，以及局部心臟示意圖產生。局部變形使用 headless OpenCV，容器不安裝桌面 GUI 元件。Docker image 採多階段建置，在 image build 時執行 Vite，不使用本機殘留的前端 bundle。
 
@@ -69,7 +69,7 @@ docker build -t cardiollm-k8s:latest .
 
 `k8s/deployment.yaml` 預設使用 `cardiollm-k8s:latest`。若部署到多節點叢集，請先把 image 匯入每個節點或改成你的 registry image。
 
-目前保留 `imagePullPolicy: IfNotPresent`，方便將 image 匯入 CubeOS 節點。正式環境建議改用不可變版本標籤或 image digest；若仍沿用 `latest`，每次更新後必須重新匯入 image 並重建 Pod，避免節點沿用舊快取。
+目前保留 `imagePullPolicy: IfNotPresent`，方便將 image 匯入 CubeCOS 節點。正式環境建議改用不可變版本標籤或 image digest；若仍沿用 `latest`，每次更新後必須重新匯入 image 並重建 Pod，避免節點沿用舊快取。
 
 ## K8s 部署
 
@@ -92,7 +92,7 @@ kubectl apply -f k8s/ingress.yaml
 ## 安全注意事項
 
 - 不要把遠端 Ollama API 對全世界開放。
-- 建議只允許 CubeOS / K8s 節點 IP 存取 Ollama API，或透過 VPN / firewall / private network 保護。
+- 建議只允許 CubeCOS / K8s 節點 IP 存取 Ollama API，或透過 VPN / firewall / private network 保護。
 - `CORS_ORIGINS` 請設定正式網站 origin，不要使用萬用來源。
 - `.env` 與 `k8s/secret.yaml` 不要上傳 git。
 - 正式環境保持 `COOKIE_SECURE=true`、`DOCS_ENABLED=false`，並透過 TLS Ingress 提供服務。
