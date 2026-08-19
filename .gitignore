@@ -55,6 +55,8 @@ safety.md
 refer/
 Refer_aidraw/
 
+tests/
+
 # Runtime generated images
 proxy/static/generated/
 
