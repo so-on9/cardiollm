@@ -53,6 +53,7 @@ ollama_store/
 
 # Local handoff / writing notes
 *PAPER_HANDOFF.md
+Caddyfile
 
 tests/
 
